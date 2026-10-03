@@ -12,8 +12,8 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { SYMBOLS } from "./symbols.js?v=355875218";
-import { storeFiles } from "./imported_files.js?v=355875218";
+import { SYMBOLS } from "./symbols.js?v=4025809702";
+import { storeFiles } from "./imported_files.js?v=4025809702";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -35,7 +35,7 @@ function symbolSVG(h, name, size, color, weight, extraStyle, secondary) {
      entry.inner ? h("path", { key: "i", d: entry.inner, fill: "none", stroke: secondary ? "currentColor" : "var(--uui-symbol-contrast, #fff)", strokeWidth: 2.2 }) : null);
 }
 
-export function createReactTreeRenderer({ container, sendEvent, assetBase = "assets/", mapSurface = null, documentScroll = false }) {
+export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, value) => { sendEvent(id, value); return false; }, assetBase = "assets/", mapSurface = null, documentScroll = false }) {
   const R = window.React;
   const SYSTEM_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
   const MONO_FONT = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
@@ -238,6 +238,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       props.style = { ...(props.style || {}), "--uui-tint": params.tint, accentColor: params.tint };
     }
     if (params.clip === "1") props.style = { ...(props.style || {}), overflow: "hidden" };
+    if (params.fixed) {
+      // `.fixedSize`: the box takes its content's ideal size on the fixed
+      // axes, whatever room the parent offers, and never shrinks.
+      const fixed = { flexShrink: 0 };
+      if (params.fixed.includes("h")) { fixed.width = "max-content"; fixed.maxWidth = "none"; }
+      if (params.fixed.includes("v")) { fixed.height = "max-content"; fixed.maxHeight = "none"; }
+      props.style = { ...(props.style || {}), ...fixed };
+    }
     if (params.aspect) props.style = { ...(props.style || {}), aspectRatio: String(params.aspect) };
     if (params.interp === "none") props.style = { ...(props.style || {}), imageRendering: "pixelated" };
     if (params.posX !== undefined && params.posY !== undefined) {
@@ -266,10 +274,16 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         const [a, b] = [...points.values()];
         return Math.hypot(a.x - b.x, a.y - b.y);
       };
+      // A drag begins once the pointer has moved `minimumDistance` (SwiftUI's
+      // rule, default 10): before that the press is still a tap for the views
+      // inside, so the pointer is captured only when the drag (or a pinch)
+      // begins — capturing at once would hand the click to this element and
+      // the inner `.onTapGesture` would never see it.
+      const dragMin = Number((n.params || {}).dragMin ?? 10);
       props.onPointerDown = (e) => {
         const st = state(e.currentTarget);
-        e.currentTarget.setPointerCapture(e.pointerId);
         st.points.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (!st.down) st.down = { x: e.clientX, y: e.clientY };
         const c = centroid(st.points);
         // A finger joining or leaving restarts the reference points, so the
         // translation carries on from where it was.
@@ -280,6 +294,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         const st = e.currentTarget.__uuiGesture;
         if (!st || !st.points.has(e.pointerId)) return;
         st.points.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (!st.engaged) {
+          const far = st.down && Math.hypot(e.clientX - st.down.x, e.clientY - st.down.y) >= dragMin;
+          if (!far && st.points.size < 2) return;
+          st.engaged = true;
+          for (const id of st.points.keys()) { try { e.currentTarget.setPointerCapture(id); } catch (_) {} }
+        }
         const c = centroid(st.points);
         st.moved = { x: c.x - st.start.x, y: c.y - st.start.y };
         if (n.drag) sendEvent(n.drag, `changed:${st.moved.x},${st.moved.y}`);
@@ -298,8 +318,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           st.spread = null;
           return;
         }
-        if (n.drag) sendEvent(n.drag, `ended:${st.moved.x},${st.moved.y}`);
-        if (magnify) sendEvent(magnify, `ended:${st.zoom}`);
+        // A press that never moved far enough was a tap, not a drag.
+        if (st.engaged) {
+          if (n.drag) sendEvent(n.drag, `ended:${st.moved.x},${st.moved.y}`);
+          if (magnify) sendEvent(magnify, `ended:${st.zoom}`);
+        }
         e.currentTarget.__uuiGesture = null;
       };
       props.onPointerUp = end;
@@ -440,8 +463,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       onFocus: () => { if (p.focus !== "1") sendEvent(p.focusId, "1"); },
       onBlur: () => { if (p.focus === "1") sendEvent(p.focusId, "0"); },
     } : {};
+    const keyUp = p.keys && p.keyUp === "1"
+      ? { onKeyUp: (e) => { if (keyPress(p.keys, e, "u")) e.preventDefault(); } }
+      : {};
     const shared = {
-      ...keyboardHints, ...autocap, ...autocorrect, ...focusHandlers,
+      ...keyboardHints, ...autocap, ...autocorrect, ...focusHandlers, ...keyUp,
       ref: focusRef,
       value,
       placeholder: n.placeholder,
@@ -453,6 +479,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       // `.onSubmit`: Enter submits (no newline); Shift/Alt+Enter inserts a
       // newline in a multi-line field (the Messages composer shape).
       onKeyDown: (e) => {
+        // `.onKeyPress`: the app sees the key first; one it takes is not typed.
+        if (p.keys && keyPress(p.keys, e, e.repeat ? "r" : "d")) {
+          e.preventDefault();
+          return;
+        }
         if (e.key !== "Enter" || e.isComposing) return;
         if (multiline && (e.shiftKey || e.altKey)) return;
         if (p.submit) {
@@ -497,6 +528,34 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       });
     }
     return h("input", { ...shared, type: n.searchStyle ? "search" : "text", style });
+  }
+
+  // A DOM key event as `KeyPress` hears it (KeyPress(hostValue:)): phase and
+  // modifier letters, the key's character (AppKit's private-use characters
+  // for the keys that type nothing), the characters it types; true when
+  // the app took it. Modifier keys alone and IME composition are not keys.
+  const KEY_EQUIVALENTS = {
+    Enter: "\r", Backspace: "\u007f", Delete: "\uf728", Escape: "\u001b", Tab: "\t",
+    ArrowUp: "\uf700", ArrowDown: "\uf701", ArrowLeft: "\uf702", ArrowRight: "\uf703",
+    Home: "\uf729", End: "\uf72b", PageUp: "\uf72c", PageDown: "\uf72d", Clear: "\uf739",
+  };
+  function keyPress(id, e, phase) {
+    if (e.isComposing || e.keyCode === 229) return false;
+    const named = KEY_EQUIVALENTS[e.key];
+    if (!named && [...e.key].length !== 1) return false;
+    const key = named || e.key;
+    let mods = phase;
+    if (e.shiftKey) mods += "s";
+    if (e.ctrlKey) mods += "c";
+    if (e.altKey) mods += "o";
+    if (e.metaKey) mods += "m";
+    if (e.getModifierState && e.getModifierState("CapsLock")) mods += "l";
+    let chars = named || e.key;
+    // Control letters type their control character, as AppKit reports them.
+    if (e.ctrlKey && !named && /^[a-zA-Z@\[\\\]^_]$/.test(e.key)) {
+      chars = String.fromCharCode(e.key.toUpperCase().charCodeAt(0) & 0x1f);
+    }
+    return !!sendKey(id, `${mods}\u001f${key}\u001f${chars}`);
   }
 
   // Syntax highlighting for the code editor: a small Swift tokenizer

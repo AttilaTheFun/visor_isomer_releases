@@ -12,9 +12,9 @@
 //
 // The shared runtime (swift_ffi/runtime/ts) is staged next to this file
 // by the wasm library macro; bridges in one directory share the one copy.
-import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=355875218";
+import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=4025809702";
 // Re-exported so consumers keep importing them from this module.
-export { Types } from "./swift_ffi_runtime.js?v=355875218";
+export { Types } from "./swift_ffi_runtime.js?v=4025809702";
 /** The runtime type token for `TextMetrics` (generic calls). */
 export const TextMetricsType = {
     encode(w, v) {
@@ -1183,6 +1183,14 @@ export class SwiftUI {
         this.runtime.call("swift_ffi_uuiHostEvent", b0.ptr, b0.len, b1.ptr, b1.len);
         b0.drop();
         b1.drop();
+    }
+    uuiKeyEvent(id, value) {
+        const b0 = stageString(this.runtime, id);
+        const b1 = stageString(this.runtime, value);
+        const r = this.runtime.call("swift_ffi_uuiKeyEvent", b0.ptr, b0.len, b1.ptr, b1.len);
+        b0.drop();
+        b1.drop();
+        return r !== 0;
     }
 }
 /** Instantiates the reactor and returns the bridged API. `wasi`
