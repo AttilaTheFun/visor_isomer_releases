@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=3001401300";
-import { SYMBOLS } from "./symbols.js?v=3001401300";
-import { storeFiles } from "./imported_files.js?v=3001401300";
+import { resolveImageSource } from "./raster.js?v=1690786260";
+import { SYMBOLS } from "./symbols.js?v=1690786260";
+import { storeFiles } from "./imported_files.js?v=1690786260";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -1607,7 +1607,13 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       // Document-scrolled, the bar is in the page's flow (sticky): no inset.
       if (!container || !bar || fixed) return undefined;
       const name = edge === "top" ? "--uui-inset-top" : "--uui-inset-bottom";
-      const apply = () => container.style.setProperty(name, `${bar.getBoundingClientRect().height}px`);
+      const apply = () => {
+        container.style.setProperty(name, `${bar.getBoundingClientRect().height}px`);
+        // The scroll's inset changed without the scroll or its rows changing
+        // size (the keyboard came up under a composer): a scroll pinned to
+        // its end takes the end again, after the new inset.
+        window.dispatchEvent(new Event("uui-insets"));
+      };
       apply();
       if (typeof ResizeObserver === "undefined") return undefined;
       const observer = new ResizeObserver(apply);
@@ -1848,10 +1854,12 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       }
       const viewport = window.visualViewport;
       if (viewport) viewport.addEventListener("resize", pin);
+      window.addEventListener("uui-insets", pin);
       return () => {
         observer.current = null;
         if (watch) watch.disconnect();
         if (viewport) viewport.removeEventListener("resize", pin);
+        window.removeEventListener("uui-insets", pin);
       };
     }, [doc]);
     return h("div", {
