@@ -43,6 +43,23 @@ function cssColor(r, g, b, a) {
   return `rgba(${(r * 255) | 0},${(g * 255) | 0},${(b * 255) | 0},${a})`;
 }
 
+// Pictures handed over by `IsomerImages.register`: their `isomer-image://`
+// source -> a Blob's object URL, which every image path draws by (the browser
+// decodes it off the main thread).
+const registeredImages = new Map();
+
+export function registerImageBytes(source, bytes) {
+  const old = registeredImages.get(source);
+  if (old) URL.revokeObjectURL(old);
+  registeredImages.delete(source);
+  // The Blob copies the bytes (they are a view of the wasm memory).
+  if (bytes && bytes.length) registeredImages.set(source, URL.createObjectURL(new Blob([bytes])));
+}
+
+export function resolveImageSource(src) {
+  return registeredImages.get(src) || src;
+}
+
 export function createRasterHost({ scale = 1, invalidate = () => {} } = {}) {
   const measureCtx = new OffscreenCanvas(1, 1).getContext("2d");
   const images = new Map(); // src -> {state, width, height, bitmap}
@@ -59,7 +76,7 @@ export function createRasterHost({ scale = 1, invalidate = () => {} } = {}) {
 
   async function loadImage(src, isRemote, entry) {
     const candidates = isRemote
-      ? [src]
+      ? [resolveImageSource(src)]
       : [`assets/${src}`, `assets/${src}.png`, `assets/${src}.jpg`];
     for (const candidate of candidates) {
       try {

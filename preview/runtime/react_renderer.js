@@ -12,8 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { SYMBOLS } from "./symbols.js?v=2966278705";
-import { storeFiles } from "./imported_files.js?v=2966278705";
+import { resolveImageSource } from "./raster.js?v=910871743";
+import { SYMBOLS } from "./symbols.js?v=910871743";
+import { storeFiles } from "./imported_files.js?v=910871743";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -2786,7 +2787,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         }
         return h("div", props, kids);
       case "image": {
-        const src = /^(https?:|data:|blob:)/.test(n.src) ? n.src : assetBase + n.src + (n.src.includes(".") ? "" : ".png");
+        const given = resolveImageSource(n.src);
+        const src = /^(https?:|data:|blob:)/.test(given) ? given : assetBase + n.src + (n.src.includes(".") ? "" : ".png");
         props.src = src;
         s.objectFit = n.fit ? "contain" : "cover";
         // scaledToFill: fill the frame box and crop (matching real SwiftUI
