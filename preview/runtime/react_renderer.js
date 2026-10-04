@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=1753736459";
-import { SYMBOLS } from "./symbols.js?v=1753736459";
-import { storeFiles } from "./imported_files.js?v=1753736459";
+import { resolveImageSource } from "./raster.js?v=3444272491";
+import { SYMBOLS } from "./symbols.js?v=3444272491";
+import { storeFiles } from "./imported_files.js?v=3444272491";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -1799,8 +1799,17 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const pin = () => {
       const el = ref.current;
       if (!el || !anchored.current || !pinned.current) return;
-      if (doc) window.scrollTo(0, document.documentElement.scrollHeight);
-      else el.scrollTop = el.scrollHeight;
+      if (doc) {
+        // Safari brings its whole toolbar back when a scroll reaches the
+        // page's very end, and with the keyboard up that toolbar is taken
+        // out of the viewport: the composer ends a toolbar's height above
+        // the keys. While a field is edited the pin stops 2px short of
+        // the end (still "at the end" to `track`), which Safari leaves be.
+        const active = document.activeElement;
+        const editing = !!active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+        const page = document.documentElement;
+        window.scrollTo(0, editing ? Math.max(0, page.scrollHeight - window.innerHeight - 2) : page.scrollHeight);
+      } else el.scrollTop = el.scrollHeight;
     };
     // Only the reader scrolling up lets go of the bottom: content growing
     // between a pin and the scroll event it causes leaves a few pixels
@@ -2181,7 +2190,9 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   // `capture` for the camera), answered with the stored files' paths ("" when
   // cancelled). Nothing is drawn.
   function PickerRequest({ n }) {
-    R.useEffect(() => {
+    // A layout effect: it runs inside the commit, so a commit made during
+    // the reader's tap opens the picker while Safari still counts the tap.
+    R.useLayoutEffect(() => {
       const p = n.params || {};
       const input = document.createElement("input");
       input.type = "file";
@@ -3066,8 +3077,11 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   }
 
   return {
-    render(tree) {
-      root.render(render(tree, "root", "v"));
+    // `now`: committed before this returns (layout effects included), as a
+    // reader's gesture needs; otherwise whenever React schedules it.
+    render(tree, now = false) {
+      if (now) window.ReactDOM.flushSync(() => root.render(render(tree, "root", "v")));
+      else root.render(render(tree, "root", "v"));
     },
   };
 }
