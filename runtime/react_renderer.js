@@ -12,8 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { SYMBOLS } from "./symbols.js?v=1823687473";
-import { storeFiles } from "./imported_files.js?v=1823687473";
+import { resolveImageSource } from "./raster.js?v=1130657049";
+import { SYMBOLS } from "./symbols.js?v=1130657049";
+import { storeFiles } from "./imported_files.js?v=1130657049";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -35,7 +36,7 @@ function symbolSVG(h, name, size, color, weight, extraStyle, secondary) {
      entry.inner ? h("path", { key: "i", d: entry.inner, fill: "none", stroke: secondary ? "currentColor" : "var(--uui-symbol-contrast, #fff)", strokeWidth: 2.2 }) : null);
 }
 
-export function createReactTreeRenderer({ container, sendEvent, assetBase = "assets/", mapSurface = null, documentScroll = false }) {
+export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, value) => { sendEvent(id, value); return false; }, assetBase = "assets/", mapSurface = null, documentScroll = false }) {
   const R = window.React;
   const SYSTEM_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
   const MONO_FONT = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
@@ -238,6 +239,21 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       props.style = { ...(props.style || {}), "--uui-tint": params.tint, accentColor: params.tint };
     }
     if (params.clip === "1") props.style = { ...(props.style || {}), overflow: "hidden" };
+    // `.textSelection`: said outright, so a container that turns selection
+    // off (a context menu's long press) doesn't turn it off here, and an
+    // inner one overrides an outer one. (Safari still wants the prefix.)
+    if (params.select) {
+      const value = params.select === "1" ? "text" : "none";
+      props.style = { ...(props.style || {}), userSelect: value, WebkitUserSelect: value };
+    }
+    if (params.fixed) {
+      // `.fixedSize`: the box takes its content's ideal size on the fixed
+      // axes, whatever room the parent offers, and never shrinks.
+      const fixed = { flexShrink: 0 };
+      if (params.fixed.includes("h")) { fixed.width = "max-content"; fixed.maxWidth = "none"; }
+      if (params.fixed.includes("v")) { fixed.height = "max-content"; fixed.maxHeight = "none"; }
+      props.style = { ...(props.style || {}), ...fixed };
+    }
     if (params.aspect) props.style = { ...(props.style || {}), aspectRatio: String(params.aspect) };
     if (params.interp === "none") props.style = { ...(props.style || {}), imageRendering: "pixelated" };
     if (params.posX !== undefined && params.posY !== undefined) {
@@ -266,10 +282,16 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         const [a, b] = [...points.values()];
         return Math.hypot(a.x - b.x, a.y - b.y);
       };
+      // A drag begins once the pointer has moved `minimumDistance` (SwiftUI's
+      // rule, default 10): before that the press is still a tap for the views
+      // inside, so the pointer is captured only when the drag (or a pinch)
+      // begins — capturing at once would hand the click to this element and
+      // the inner `.onTapGesture` would never see it.
+      const dragMin = Number((n.params || {}).dragMin ?? 10);
       props.onPointerDown = (e) => {
         const st = state(e.currentTarget);
-        e.currentTarget.setPointerCapture(e.pointerId);
         st.points.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (!st.down) st.down = { x: e.clientX, y: e.clientY };
         const c = centroid(st.points);
         // A finger joining or leaving restarts the reference points, so the
         // translation carries on from where it was.
@@ -280,6 +302,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         const st = e.currentTarget.__uuiGesture;
         if (!st || !st.points.has(e.pointerId)) return;
         st.points.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (!st.engaged) {
+          const far = st.down && Math.hypot(e.clientX - st.down.x, e.clientY - st.down.y) >= dragMin;
+          if (!far && st.points.size < 2) return;
+          st.engaged = true;
+          for (const id of st.points.keys()) { try { e.currentTarget.setPointerCapture(id); } catch (_) {} }
+        }
         const c = centroid(st.points);
         st.moved = { x: c.x - st.start.x, y: c.y - st.start.y };
         if (n.drag) sendEvent(n.drag, `changed:${st.moved.x},${st.moved.y}`);
@@ -298,8 +326,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           st.spread = null;
           return;
         }
-        if (n.drag) sendEvent(n.drag, `ended:${st.moved.x},${st.moved.y}`);
-        if (magnify) sendEvent(magnify, `ended:${st.zoom}`);
+        // A press that never moved far enough was a tap, not a drag.
+        if (st.engaged) {
+          if (n.drag) sendEvent(n.drag, `ended:${st.moved.x},${st.moved.y}`);
+          if (magnify) sendEvent(magnify, `ended:${st.zoom}`);
+        }
         e.currentTarget.__uuiGesture = null;
       };
       props.onPointerUp = end;
@@ -440,8 +471,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       onFocus: () => { if (p.focus !== "1") sendEvent(p.focusId, "1"); },
       onBlur: () => { if (p.focus === "1") sendEvent(p.focusId, "0"); },
     } : {};
+    const keyUp = p.keys && p.keyUp === "1"
+      ? { onKeyUp: (e) => { if (keyPress(p.keys, e, "u")) e.preventDefault(); } }
+      : {};
     const shared = {
-      ...keyboardHints, ...autocap, ...autocorrect, ...focusHandlers,
+      ...keyboardHints, ...autocap, ...autocorrect, ...focusHandlers, ...keyUp,
       ref: focusRef,
       value,
       placeholder: n.placeholder,
@@ -453,6 +487,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       // `.onSubmit`: Enter submits (no newline); Shift/Alt+Enter inserts a
       // newline in a multi-line field (the Messages composer shape).
       onKeyDown: (e) => {
+        // `.onKeyPress`: the app sees the key first; one it takes is not typed.
+        if (p.keys && keyPress(p.keys, e, e.repeat ? "r" : "d")) {
+          e.preventDefault();
+          return;
+        }
         if (e.key !== "Enter" || e.isComposing) return;
         if (multiline && (e.shiftKey || e.altKey)) return;
         if (p.submit) {
@@ -497,6 +536,34 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       });
     }
     return h("input", { ...shared, type: n.searchStyle ? "search" : "text", style });
+  }
+
+  // A DOM key event as `KeyPress` hears it (KeyPress(hostValue:)): phase and
+  // modifier letters, the key's character (AppKit's private-use characters
+  // for the keys that type nothing), the characters it types; true when
+  // the app took it. Modifier keys alone and IME composition are not keys.
+  const KEY_EQUIVALENTS = {
+    Enter: "\r", Backspace: "\u007f", Delete: "\uf728", Escape: "\u001b", Tab: "\t",
+    ArrowUp: "\uf700", ArrowDown: "\uf701", ArrowLeft: "\uf702", ArrowRight: "\uf703",
+    Home: "\uf729", End: "\uf72b", PageUp: "\uf72c", PageDown: "\uf72d", Clear: "\uf739",
+  };
+  function keyPress(id, e, phase) {
+    if (e.isComposing || e.keyCode === 229) return false;
+    const named = KEY_EQUIVALENTS[e.key];
+    if (!named && [...e.key].length !== 1) return false;
+    const key = named || e.key;
+    let mods = phase;
+    if (e.shiftKey) mods += "s";
+    if (e.ctrlKey) mods += "c";
+    if (e.altKey) mods += "o";
+    if (e.metaKey) mods += "m";
+    if (e.getModifierState && e.getModifierState("CapsLock")) mods += "l";
+    let chars = named || e.key;
+    // Control letters type their control character, as AppKit reports them.
+    if (e.ctrlKey && !named && /^[a-zA-Z@\[\\\]^_]$/.test(e.key)) {
+      chars = String.fromCharCode(e.key.toUpperCase().charCodeAt(0) & 0x1f);
+    }
+    return !!sendKey(id, `${mods}\u001f${key}\u001f${chars}`);
   }
 
   // Syntax highlighting for the code editor: a small Swift tokenizer
@@ -887,6 +954,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // A second child is the `.principal` item's own view (the bar draws it).
     const principalView = p.principalContent === "1" && kids && kids.length > 1 ? kids[kids.length - 1] : null;
     if (principalView) kids = kids.slice(0, -1);
+    // `.scrollEdgeEffectStyle(.hard, for: .top)` on the screen's scroll:
+    // the bar is an opaque band of the page's ground with a line where it
+    // ends (iOS's hard edge), not the soft frost.
+    const content = (n.ch || [])[0];
+    const scrolled = pinned ? edgeScroll(content) : null;
+    const hardEdge = !!scrolled && (scrolled.params || {}).edgeTop === "hard";
     const rows = [];
     if (showBar) {
       rows.push(h(pinned ? "div" : R.Fragment, pinned ? {
@@ -906,7 +979,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         // the page's top edge, hiding the content that should run under it;
         // there the bar is its buttons and title alone, the title with a
         // halo, and Safari's own scroll edge frosts the top.)
-        pinned && !docScroll() ? h("div", {
+        hardEdge ? h("div", {
+          key: "band",
+          style: {
+            position: "absolute", inset: 0, pointerEvents: "none",
+            background: backdropFill(content) || (dark ? "#000" : "#fff"),
+            borderBottom: `0.5px solid ${dark ? "rgba(84,84,88,0.65)" : "rgba(60,60,67,0.29)"}`,
+          },
+        }) : pinned && !docScroll() ? h("div", {
           key: "frost",
           style: {
             position: "absolute", inset: 0, pointerEvents: "none",
@@ -1547,11 +1627,20 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       // Document-scrolled, the bar is in the page's flow (sticky): no inset.
       if (!container || !bar || fixed) return undefined;
       const name = edge === "top" ? "--uui-inset-top" : "--uui-inset-bottom";
-      const apply = () => container.style.setProperty(name, `${bar.getBoundingClientRect().height}px`);
+      const apply = () => {
+        container.style.setProperty(name, `${bar.getBoundingClientRect().height}px`);
+        // The scroll's inset changed without the scroll or its rows changing
+        // size (the keyboard came up under a composer): a scroll pinned to
+        // its end takes the end again, after the new inset.
+        window.dispatchEvent(new Event("uui-insets"));
+      };
       apply();
       if (typeof ResizeObserver === "undefined") return undefined;
       const observer = new ResizeObserver(apply);
-      observer.observe(bar);
+      // Its border box: the keyboard coming up grows the bar's bottom padding
+      // (it sits on the keyboard), which a content-box observer never sees,
+      // and the scroll's inset stayed short of the keyboard.
+      observer.observe(bar, { box: "border-box" });
       return () => observer.disconnect();
     }, [edge, fixed]);
     const contentIndex = edge === "top" ? 1 : 0;
@@ -1691,8 +1780,29 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   // up). One component whatever the anchor, so the anchor changing (AgentUI
   // holds the top for the moment rows are appended, then scrolls down to
   // them) keeps the scroll and its rows rather than building them again.
-  function ManagedScroll({ divProps, children, request, windowId, doc, id, bottom, epoch, rows }) {
+  function ManagedScroll({ divProps, children, request, windowId, doc, id, bottom, epoch, rows, geometryId }) {
     const ref = R.useRef(null);
+    // `onScrollGeometryChange`: where the scroll is and how large its
+    // content is, reported (in points) as either changes.
+    R.useEffect(() => {
+      const el = ref.current;
+      if (!geometryId || !el) return;
+      let reported = "";
+      const report = () => {
+        const top = doc ? window.scrollY : el.scrollTop;
+        const height = doc ? document.documentElement.scrollHeight : el.scrollHeight;
+        const viewport = doc ? window.innerHeight : el.clientHeight;
+        const value = [doc ? window.scrollX : el.scrollLeft, top, el.scrollWidth, height, el.clientWidth, viewport, 0, 0, 0, 0]
+          .map((v) => Number(v).toFixed(1)).join(",");
+        if (value !== reported) { reported = value; sendEvent(geometryId, value); }
+      };
+      const target = doc ? window : el;
+      target.addEventListener("scroll", report, { passive: true });
+      const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(report);
+      if (observer) { observer.observe(el); if (el.firstElementChild) observer.observe(el.firstElementChild); }
+      report();
+      return () => { target.removeEventListener("scroll", report); if (observer) observer.disconnect(); };
+    }, [geometryId, doc]);
     const applied = R.useRef(null);
     const anchored = R.useRef(bottom);
     anchored.current = bottom;
@@ -1709,8 +1819,17 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     const pin = () => {
       const el = ref.current;
       if (!el || !anchored.current || !pinned.current) return;
-      if (doc) window.scrollTo(0, document.documentElement.scrollHeight);
-      else el.scrollTop = el.scrollHeight;
+      if (doc) {
+        // Safari brings its whole toolbar back when a scroll reaches the
+        // page's very end, and with the keyboard up that toolbar is taken
+        // out of the viewport: the composer ends a toolbar's height above
+        // the keys. While a field is edited the pin stops 2px short of
+        // the end (still "at the end" to `track`), which Safari leaves be.
+        const active = document.activeElement;
+        const editing = !!active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+        const page = document.documentElement;
+        window.scrollTo(0, editing ? Math.max(0, page.scrollHeight - window.innerHeight - 2) : page.scrollHeight);
+      } else el.scrollTop = el.scrollHeight;
     };
     // Only the reader scrolling up lets go of the bottom: content growing
     // between a pin and the scroll event it causes leaves a few pixels
@@ -1767,10 +1886,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       }
       const viewport = window.visualViewport;
       if (viewport) viewport.addEventListener("resize", pin);
+      window.addEventListener("uui-insets", pin);
       return () => {
         observer.current = null;
         if (watch) watch.disconnect();
         if (viewport) viewport.removeEventListener("resize", pin);
+        window.removeEventListener("uui-insets", pin);
       };
     }, [doc]);
     return h("div", {
@@ -2089,7 +2210,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   // `capture` for the camera), answered with the stored files' paths ("" when
   // cancelled). Nothing is drawn.
   function PickerRequest({ n }) {
-    R.useEffect(() => {
+    // A layout effect: it runs inside the commit, so a commit made during
+    // the reader's tap opens the picker while Safari still counts the tap.
+    R.useLayoutEffect(() => {
       const p = n.params || {};
       const input = document.createElement("input");
       input.type = "file";
@@ -2722,12 +2845,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         const request = (n.params || {}).scrollTo;
         const windowId = (n.params || {}).window;
         const bottom = (n.params || {}).anchor === "bottom";
-        if (bottom || request || windowId || documentScrolled) {
-          return h(ManagedScroll, { key, divProps: props, request, windowId, doc: documentScrolled, id: n.key || key, bottom, epoch: (n.params || {}).epoch, rows: (n.params || {}).rows }, kids);
+        const geometryId = (n.params || {}).geometry;
+        if (bottom || request || windowId || documentScrolled || geometryId) {
+          return h(ManagedScroll, { key, divProps: props, request, windowId, doc: documentScrolled, id: n.key || key, bottom, epoch: (n.params || {}).epoch, rows: (n.params || {}).rows, geometryId }, kids);
         }
         return h("div", props, kids);
       case "image": {
-        const src = /^(https?:|data:|blob:)/.test(n.src) ? n.src : assetBase + n.src + (n.src.includes(".") ? "" : ".png");
+        const given = resolveImageSource(n.src);
+        const src = /^(https?:|data:|blob:)/.test(given) ? given : assetBase + n.src + (n.src.includes(".") ? "" : ".png");
         props.src = src;
         s.objectFit = n.fit ? "contain" : "cover";
         // scaledToFill: fill the frame box and crop (matching real SwiftUI
@@ -2763,10 +2888,24 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           else if (size === "large") { s.width = 32; s.height = 32; s.borderWidth = 3; }
           return h("div", props);
         }
-        props.value = n.v;
-        props.max = 1;
+        // A linear bar as iOS draws one: a 4pt capsule track with the fill
+        // in the tint (the accent unless `.tint` says otherwise), rather
+        // than the browser's own <progress>, which differs per browser.
+        const fraction = Math.min(1, Math.max(0, Number(n.v) || 0));
+        props.role = "progressbar";
+        props["aria-valuemin"] = 0;
+        props["aria-valuemax"] = 1;
+        props["aria-valuenow"] = fraction;
         s.alignSelf = "stretch";
-        return h("progress", props);
+        s.flex = "none";
+        s.height = 4;
+        s.borderRadius = 2;
+        s.overflow = "hidden";
+        s.position = "relative";
+        s.background = "rgba(120,120,128,0.24)";
+        return h("div", props, h("div", {
+          style: { position: "absolute", left: 0, top: 0, bottom: 0, width: `${fraction * 100}%`, borderRadius: 2, background: "var(--uui-tint, #0a84ff)" },
+        }));
       case "shape":
       case "gradient": {
         // `.trim` on a circle: the stroked arc of a ring, drawn as SVG.
@@ -2972,8 +3111,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   }
 
   return {
-    render(tree) {
-      root.render(render(tree, "root", "v"));
+    // `now`: committed before this returns (layout effects included), as a
+    // reader's gesture needs; otherwise whenever React schedules it.
+    render(tree, now = false) {
+      if (now) window.ReactDOM.flushSync(() => root.render(render(tree, "root", "v")));
+      else root.render(render(tree, "root", "v"));
     },
   };
 }

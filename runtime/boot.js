@@ -4,11 +4,11 @@
 // the runtime. Strings and structs copy at the boundary, so there is no
 // pointer/length or staging-buffer plumbing here.
 
-import { importedFilesWasi } from "./imported_files.js?v=1823687473";
-import { load } from "../app_bridge.js?v=1823687473";
-import { createRasterHost } from "./raster.js?v=1823687473";
-import { createReactTreeRenderer } from "./react_renderer.js?v=1823687473";
-import { applyPatch } from "./flat_tree.js?v=1823687473";
+import { importedFilesWasi } from "./imported_files.js?v=1130657049";
+import { load } from "../app_bridge.js?v=1130657049";
+import { createRasterHost, registerImageBytes } from "./raster.js?v=1130657049";
+import { createReactTreeRenderer } from "./react_renderer.js?v=1130657049";
+import { applyPatch } from "./flat_tree.js?v=1130657049";
 
 // `rendererName` picks the renderer (docs/renderer_layers.md): "webGPU"
 // (default) binds the self-drawing SwiftGPURenderer; "react" binds the
@@ -56,7 +56,7 @@ export async function boot({
     // static import would put swift_gpu's executor on EVERY page's critical
     // module graph (an unresolved ES module import evaluates NOTHING —
     // rendering as a silent blank page when the file isn't served).
-    const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=1823687473");
+    const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=1130657049");
     gpuHost = await createSwiftGPUHost(canvas);
     raster = createRasterHost({
       scale: window.devicePixelRatio || 1,
@@ -218,7 +218,7 @@ export async function boot({
               invalidate: () => scheduleRender(),
             });
           }
-          const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=1823687473");
+          const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=1130657049");
           gpuHost = await createSwiftGPUHost(canvas);
           bridge.gpuConnect(gpuHost);
           bridge.uuiSetDisplayScale(window.devicePixelRatio || 1);
@@ -259,7 +259,8 @@ export async function boot({
     };
     reactTree = createReactTreeRenderer({
       container: treeContainer,
-      sendEvent: (id, value) => bridge.uuiHostEvent(id, value),
+      sendEvent: hostEvent,
+      sendKey: (id, value) => bridge.uuiKeyEvent(id, value),
       mapSurface,
       documentScroll,
     });
@@ -267,14 +268,29 @@ export async function boot({
     window.__uuiSendEvent = (id, value) => bridge.uuiHostEvent(id, value);
   }
 
-  let renderQueued = false;
+  let renderFrame = 0;
   function scheduleRender() {
-    if (renderQueued) return;
-    renderQueued = true;
-    requestAnimationFrame(() => {
-      renderQueued = false;
+    if (renderFrame) return;
+    renderFrame = requestAnimationFrame(() => {
+      renderFrame = 0;
       bridge.uuiRender();
     });
+  }
+
+  // A reader's tap renders what it changed before its event returns, not a
+  // frame later: what that frame presents may be something only the
+  // reader's gesture can open (a file picker: Safari opens one from
+  // `input.click()` only while the click is being dispatched).
+  let renderingInGesture = false;
+  const GESTURES = new Set(["click", "pointerup", "touchend", "keydown", "keyup"]);
+  function hostEvent(id, value) {
+    bridge.uuiHostEvent(id, value);
+    const event = window.event;
+    if (!renderFrame || !event || !event.isTrusted || !GESTURES.has(event.type)) return;
+    cancelAnimationFrame(renderFrame);
+    renderFrame = 0;
+    renderingInGesture = true;
+    try { bridge.uuiRender(); } finally { renderingInGesture = false; }
   }
 
 
@@ -456,13 +472,14 @@ export async function boot({
       if (typeof window.uuiPlatformCommand === "function") window.uuiPlatformCommand(key, value);
     },
     epochMillis() { return Date.now(); },
+    registerImage(source, bytes) { registerImageBytes(source, bytes); },
     renderTree(tree) {
       // Each buffer is a tree.fbs `Patch` — the only wire format — applied in
       // arrival order to the retained plain-object tree the React interpreter
       // walks (the first patch after start is a full-tree op at "n").
       retainedTree = applyPatch(retainedTree, tree);
       window.__uuiLastTree = JSON.stringify(retainedTree); // for headless smoke tests
-      reactTree.render(retainedTree);
+      reactTree.render(retainedTree, renderingInGesture);
       // A mounted map redraws with every tree frame (camera moves arrive as
       // new frames; tile completions schedule one through the image drain).
       if (mapSurface && mapSurface.el) mapSurface.draw();
@@ -483,8 +500,9 @@ export async function boot({
   bridge = await load(module, { dependencies, wasi: wasiWithFiles });
   if (gpuHost) {
     bridge.gpuConnect(gpuHost); // swift_gpu's WebGPU executor
-    bridge.uuiSetDisplayScale(window.devicePixelRatio || 1);
   }
+  // Device pixels per point: the GPU renderer's clips, and `\.displayScale`.
+  bridge.uuiSetDisplayScale(window.devicePixelRatio || 1);
 
   const scale = window.devicePixelRatio || 1;
   function resizeBacking() {
@@ -573,7 +591,7 @@ export async function mountIsomer(container, { wasmURL, bundle, renderer = "webG
   container.appendChild(canvas);
 
   const result = await boot({
-    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=1823687473"),
+    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=1130657049"),
     bundle, rendererName: renderer, embedded: true, dependencies, wasi,
   });
 
