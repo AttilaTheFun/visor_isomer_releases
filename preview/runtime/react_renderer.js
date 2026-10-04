@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=3444272491";
-import { SYMBOLS } from "./symbols.js?v=3444272491";
-import { storeFiles } from "./imported_files.js?v=3444272491";
+import { resolveImageSource } from "./raster.js?v=916500011";
+import { SYMBOLS } from "./symbols.js?v=916500011";
+import { storeFiles } from "./imported_files.js?v=916500011";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -947,6 +947,12 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     // A second child is the `.principal` item's own view (the bar draws it).
     const principalView = p.principalContent === "1" && kids && kids.length > 1 ? kids[kids.length - 1] : null;
     if (principalView) kids = kids.slice(0, -1);
+    // `.scrollEdgeEffectStyle(.hard, for: .top)` on the screen's scroll:
+    // the bar is an opaque band of the page's ground with a line where it
+    // ends (iOS's hard edge), not the soft frost.
+    const content = (n.ch || [])[0];
+    const scrolled = pinned ? edgeScroll(content) : null;
+    const hardEdge = !!scrolled && (scrolled.params || {}).edgeTop === "hard";
     const rows = [];
     if (showBar) {
       rows.push(h(pinned ? "div" : R.Fragment, pinned ? {
@@ -966,7 +972,14 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         // the page's top edge, hiding the content that should run under it;
         // there the bar is its buttons and title alone, the title with a
         // halo, and Safari's own scroll edge frosts the top.)
-        pinned && !docScroll() ? h("div", {
+        hardEdge ? h("div", {
+          key: "band",
+          style: {
+            position: "absolute", inset: 0, pointerEvents: "none",
+            background: backdropFill(content) || (dark ? "#000" : "#fff"),
+            borderBottom: `0.5px solid ${dark ? "rgba(84,84,88,0.65)" : "rgba(60,60,67,0.29)"}`,
+          },
+        }) : pinned && !docScroll() ? h("div", {
           key: "frost",
           style: {
             position: "absolute", inset: 0, pointerEvents: "none",
@@ -2868,10 +2881,24 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           else if (size === "large") { s.width = 32; s.height = 32; s.borderWidth = 3; }
           return h("div", props);
         }
-        props.value = n.v;
-        props.max = 1;
+        // A linear bar as iOS draws one: a 4pt capsule track with the fill
+        // in the tint (the accent unless `.tint` says otherwise), rather
+        // than the browser's own <progress>, which differs per browser.
+        const fraction = Math.min(1, Math.max(0, Number(n.v) || 0));
+        props.role = "progressbar";
+        props["aria-valuemin"] = 0;
+        props["aria-valuemax"] = 1;
+        props["aria-valuenow"] = fraction;
         s.alignSelf = "stretch";
-        return h("progress", props);
+        s.flex = "none";
+        s.height = 4;
+        s.borderRadius = 2;
+        s.overflow = "hidden";
+        s.position = "relative";
+        s.background = "rgba(120,120,128,0.24)";
+        return h("div", props, h("div", {
+          style: { position: "absolute", left: 0, top: 0, bottom: 0, width: `${fraction * 100}%`, borderRadius: 2, background: "var(--uui-tint, #0a84ff)" },
+        }));
       case "shape":
       case "gradient": {
         // `.trim` on a circle: the stroked arc of a ring, drawn as SVG.
