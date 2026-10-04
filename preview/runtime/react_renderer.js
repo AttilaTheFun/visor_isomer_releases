@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=916500011";
-import { SYMBOLS } from "./symbols.js?v=916500011";
-import { storeFiles } from "./imported_files.js?v=916500011";
+import { resolveImageSource } from "./raster.js?v=2959345313";
+import { SYMBOLS } from "./symbols.js?v=2959345313";
+import { storeFiles } from "./imported_files.js?v=2959345313";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -239,6 +239,13 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       props.style = { ...(props.style || {}), "--uui-tint": params.tint, accentColor: params.tint };
     }
     if (params.clip === "1") props.style = { ...(props.style || {}), overflow: "hidden" };
+    // `.textSelection`: said outright, so a container that turns selection
+    // off (a context menu's long press) doesn't turn it off here, and an
+    // inner one overrides an outer one. (Safari still wants the prefix.)
+    if (params.select) {
+      const value = params.select === "1" ? "text" : "none";
+      props.style = { ...(props.style || {}), userSelect: value, WebkitUserSelect: value };
+    }
     if (params.fixed) {
       // `.fixedSize`: the box takes its content's ideal size on the fixed
       // axes, whatever room the parent offers, and never shrinks.
