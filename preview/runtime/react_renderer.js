@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=3619250091";
-import { SYMBOLS } from "./symbols.js?v=3619250091";
-import { storeFiles } from "./imported_files.js?v=3619250091";
+import { resolveImageSource } from "./raster.js?v=3001401300";
+import { SYMBOLS } from "./symbols.js?v=3001401300";
+import { storeFiles } from "./imported_files.js?v=3001401300";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -1751,8 +1751,29 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   // up). One component whatever the anchor, so the anchor changing (AgentUI
   // holds the top for the moment rows are appended, then scrolls down to
   // them) keeps the scroll and its rows rather than building them again.
-  function ManagedScroll({ divProps, children, request, windowId, doc, id, bottom, epoch, rows }) {
+  function ManagedScroll({ divProps, children, request, windowId, doc, id, bottom, epoch, rows, geometryId }) {
     const ref = R.useRef(null);
+    // `onScrollGeometryChange`: where the scroll is and how large its
+    // content is, reported (in points) as either changes.
+    R.useEffect(() => {
+      const el = ref.current;
+      if (!geometryId || !el) return;
+      let reported = "";
+      const report = () => {
+        const top = doc ? window.scrollY : el.scrollTop;
+        const height = doc ? document.documentElement.scrollHeight : el.scrollHeight;
+        const viewport = doc ? window.innerHeight : el.clientHeight;
+        const value = [doc ? window.scrollX : el.scrollLeft, top, el.scrollWidth, height, el.clientWidth, viewport, 0, 0, 0, 0]
+          .map((v) => Number(v).toFixed(1)).join(",");
+        if (value !== reported) { reported = value; sendEvent(geometryId, value); }
+      };
+      const target = doc ? window : el;
+      target.addEventListener("scroll", report, { passive: true });
+      const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(report);
+      if (observer) { observer.observe(el); if (el.firstElementChild) observer.observe(el.firstElementChild); }
+      report();
+      return () => { target.removeEventListener("scroll", report); if (observer) observer.disconnect(); };
+    }, [geometryId, doc]);
     const applied = R.useRef(null);
     const anchored = R.useRef(bottom);
     anchored.current = bottom;
@@ -2782,8 +2803,9 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         const request = (n.params || {}).scrollTo;
         const windowId = (n.params || {}).window;
         const bottom = (n.params || {}).anchor === "bottom";
-        if (bottom || request || windowId || documentScrolled) {
-          return h(ManagedScroll, { key, divProps: props, request, windowId, doc: documentScrolled, id: n.key || key, bottom, epoch: (n.params || {}).epoch, rows: (n.params || {}).rows }, kids);
+        const geometryId = (n.params || {}).geometry;
+        if (bottom || request || windowId || documentScrolled || geometryId) {
+          return h(ManagedScroll, { key, divProps: props, request, windowId, doc: documentScrolled, id: n.key || key, bottom, epoch: (n.params || {}).epoch, rows: (n.params || {}).rows, geometryId }, kids);
         }
         return h("div", props, kids);
       case "image": {
