@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=2329107135";
-import { SYMBOLS } from "./symbols.js?v=2329107135";
-import { storeFiles } from "./imported_files.js?v=2329107135";
+import { resolveImageSource } from "./raster.js?v=160246584";
+import { SYMBOLS } from "./symbols.js?v=160246584";
+import { storeFiles } from "./imported_files.js?v=160246584";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -1095,6 +1095,9 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         key: `content:${depth}`, // remount per level: a push swaps the screen
         style: {
           display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch",
+          // Nothing pins over the content here: its edge scroll takes no
+          // top inset (an enclosing bar's must not reach it).
+          "--uui-inset-top": "0px",
           ...(rows.length > 1 ? { "--uui-safe-top": "0px" } : {}),
         },
       }, kids));
@@ -2601,12 +2604,21 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       };
       pendingTabPill = tabPill;
     }
-    // Pinned chrome (a bar-only navstack, a safe-area inset stack): find the
+    // A screen's chrome (a navstack, a safe-area inset stack): find the
     // content's edge scroll before the children render, so the scroll takes
-    // the chrome's insets as padding and flows beneath it.
+    // the chrome's insets as padding and flows beneath it — and, on a
+    // document-scrolled page, is the page's scroll. Every navstack claims
+    // it, not only one whose bar pins over the content: under a large title
+    // the scroll takes no top inset, but it is still the screen's scroll
+    // (unclaimed, it was a bounded scroll inside the page's content-sized
+    // chain, and a Form under a large title came out with no height at all
+    // on a phone-width page).
     let ownsEdgeScroll = false;
-    if (n.k === "hostView" && n.view === "navstack" && navStackBarOnly(n) && (n.ch || []).length === 1) {
-      const target = edgeScroll(n.ch[0]);
+    const navContent = n.k === "hostView" && n.view === "navstack"
+      ? ((n.ch || []).length === 1 || ((n.params || {}).principalContent === "1" && (n.ch || []).length === 2) ? n.ch[0] : null)
+      : null;
+    if (navContent) {
+      const target = edgeScroll(navContent);
       if (target) { edgeScrolls.add(target); ownsEdgeScroll = true; }
     } else if (n.k === "stack" && (n.params || {}).inset && (n.ch || []).length === 2) {
       const target = edgeScroll(n.ch[(n.params || {}).inset === "top" ? 1 : 0]);
