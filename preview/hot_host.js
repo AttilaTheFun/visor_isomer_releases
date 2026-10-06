@@ -1,0 +1,208 @@
+// A generic browser host for `uui_hot` feature bundles — the web peer of the
+// native WasmView. Where boot.js drives an app reactor through its GENERATED
+// swift_ffi bindings (app_bridge.js), this host speaks the fixed `uui_hot`
+// render ABI directly, so it can run ANY feature bundle — including one
+// compiled outside bazel (the Playground app's on-the-fly user builds) —
+// with no generated code. The reactor pushes tree.fbs Patches; the React
+// renderer mounts them as real DOM.
+//
+// ABI (mirrors HotBridge.swift):
+//   imports (this host provides, module "uui_hot"):
+//     render_tree(ptr, len)  log(ptr, len)  epoch_millis()  schedule_render()
+//   exports (this host calls):
+//     _initialize, uui_hot_start(w, h), uui_hot_render(), uui_hot_resize(w, h),
+//     uui_hot_set_color_scheme(dark), uui_hot_alloc/free, uui_hot_event(...)
+//
+// The six fixed `swift_ffi` transport imports are bound as inert stubs
+// (dependency lookups answer "absent"); a v3 reactor that never touches
+// `dependencies[...]` runs exactly as it does under a host without DI.
+
+import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=2329107135";
+import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=2329107135";
+import { applyPatch } from "./runtime/flat_tree.js?v=2329107135";
+
+const decoder = new TextDecoder();
+const encoder = new TextEncoder();
+
+/** Instantiates `wasm` (bytes or a compiled Module) and mounts the feature
+ *  into `container`. Returns { resize(w, h), setColorScheme(dark), stop() }. */
+export async function runHotBundle({ wasm, container, dependencies = {}, onLog = null, onStatus = null }) {
+  let memory = null;
+  let exports = null;
+  let retainedTree = null;
+
+  const guestString = (ptr, len) =>
+    len <= 0 ? "" : decoder.decode(new Uint8Array(memory.buffer, ptr, len));
+
+  function sendEvent(id, value) {
+    if (!exports) return;
+    const idBytes = encoder.encode(id);
+    const valueBytes = encoder.encode(value);
+    const idPtr = exports.uui_hot_alloc(idBytes.length);
+    new Uint8Array(memory.buffer, idPtr, idBytes.length).set(idBytes);
+    const valuePtr = exports.uui_hot_alloc(valueBytes.length);
+    new Uint8Array(memory.buffer, valuePtr, valueBytes.length).set(valueBytes);
+    exports.uui_hot_event(idPtr, idBytes.length, valuePtr, valueBytes.length);
+    exports.uui_hot_free(idPtr);
+    exports.uui_hot_free(valuePtr);
+    scheduleRender();
+  }
+
+  // Dispatch-channel helpers: argument buffers arrive borrowed as (ptr, len);
+  // results go back packed as (len << 32) | ptr in swift_ffi_alloc memory
+  // (ownership transfers to the guest).
+  let ffiRuntime = null;
+  const foreignBytes = (ptr, len) =>
+    len === 0 ? new Uint8Array(0) : new Uint8Array(memory.buffer, ptr, len).slice();
+  const foreignString = (ptr, len) =>
+    len === 0 ? "" : ffiDecoder.decode(new Uint8Array(memory.buffer, ptr, len));
+  const packForeignBytes = (bytes) => {
+    if (bytes.length === 0) return 0n;
+    const ptr = exports.swift_ffi_alloc(bytes.length);
+    new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
+    return (BigInt(bytes.length) << 32n) | BigInt(ptr >>> 0);
+  };
+
+  const renderer = createReactTreeRenderer({ container, sendEvent });
+  window.__uuiSendEvent = sendEvent; // headless smoke-test hook
+
+  let renderQueued = false;
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => {
+      renderQueued = false;
+      if (exports) exports.uui_hot_render();
+    });
+  }
+
+  const imports = {
+    uui_hot: {
+      render_tree(ptr, len) {
+        const bytes = new Uint8Array(memory.buffer, ptr, len).slice();
+        retainedTree = applyPatch(retainedTree, bytes);
+        window.__uuiLastTree = JSON.stringify(retainedTree); // smoke-test hook
+        renderer.render(retainedTree);
+      },
+      log(ptr, len) {
+        const line = guestString(ptr, len);
+        console.log("[uui-hot]", line);
+        if (onLog) onLog(line);
+      },
+      epoch_millis() {
+        return Date.now();
+      },
+      schedule_render() {
+        scheduleRender();
+      },
+    },
+    // The fixed v3 swift_ffi transport (the same bindings the generated
+    // app_bridge `load` installs): `dependencies` is a {key: dependency}
+    // table built with a module's generated `Dependencies.*` builders —
+    // the guest's `dependencies[...]` lookups resolve to them, and their
+    // async answers come back through resumeAsync/async_complete. With no
+    // table, lookups return "absent" and the guest runs without DI.
+    swift_ffi: {
+      closure_invoke(id, argsPtr, argsLen) {
+        const dispatcher = foreignObjects.get(id);
+        let result;
+        try {
+          if (!dispatcher) throw new Error(`no foreign object ${id}`);
+          result = dispatcher(foreignBytes(argsPtr, argsLen));
+        } catch (error) {
+          result = encodeErrorBlob(error instanceof Error ? error.message : String(error));
+        }
+        return packForeignBytes(result);
+      },
+      foreign_release(id) { foreignObjects.delete(id); },
+      dependency_get(keyPtr, keyLen) {
+        const dep = dependencies[foreignString(keyPtr, keyLen)];
+        if (!dep) return 0n;
+        const w = new BlobWriter();
+        w.header(Tags.list, 0);
+        w.i64(3n);
+        Types.bool.encode(w, dep.lazy);
+        Types.string.encode(w, dep.key);
+        Types.int32.encode(w, registerForeign((args) => dep.dispatcher(args, () => ffiRuntime)));
+        return packForeignBytes(w.data());
+      },
+      task_enqueue(job) {
+        queueMicrotask(() => {
+          if (exports && exports.swift_ffi_task_run) exports.swift_ffi_task_run(job);
+        });
+      },
+      // A timed job (Task.sleep): run it once the delay is up.
+      task_enqueue_after(job, delayMs) {
+        setTimeout(() => {
+          if (exports && exports.swift_ffi_task_run) exports.swift_ffi_task_run(job);
+        }, Math.max(0, delayMs));
+      },
+      async_complete(callId, blobPtr, blobLen) {
+        const pending = pendingCalls.get(callId);
+        pendingCalls.delete(callId);
+        if (pending) pending.resolve(pending.decode(foreignBytes(blobPtr, blobLen)));
+      },
+    },
+    wasi_snapshot_preview1: wasiShim(() => {
+      if (!memory) throw new Error("wasm memory accessed before instantiation");
+      return memory;
+    }),
+  };
+
+  const module =
+    wasm instanceof WebAssembly.Module ? wasm : await WebAssembly.compile(wasm);
+  const instance = await WebAssembly.instantiate(module, imports);
+  memory = instance.exports.memory;
+  instance.exports._initialize();
+  exports = instance.exports;
+  ffiRuntime = new Runtime(instance.exports);
+  // Register every interface's dependency-proxy factory the reactor
+  // exports (docs/wasm_di.md) — generic, so any module's interfaces work.
+  for (const name of Object.keys(instance.exports)) {
+    if (/^swift_ffi_.*_register_/.test(name)) instance.exports[name]();
+  }
+
+  // System appearance BEFORE the first frame (no light flash for dark users),
+  // live on later toggles. Mirrors boot.js's page treatment.
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  function applyColorScheme(dark) {
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    document.body.style.background = dark ? "rgb(18, 18, 20)" : "#ffffff";
+    exports.uui_hot_set_color_scheme(dark ? 1 : 0);
+  }
+  applyColorScheme(darkQuery.matches);
+  darkQuery.addEventListener("change", (event) => {
+    applyColorScheme(event.matches);
+    scheduleRender();
+  });
+
+  exports.uui_hot_start(
+    container.clientWidth || window.innerWidth,
+    container.clientHeight || window.innerHeight);
+  exports.uui_hot_render();
+
+  const onResize = () => {
+    exports.uui_hot_resize(
+      container.clientWidth || window.innerWidth,
+      container.clientHeight || window.innerHeight);
+    scheduleRender();
+  };
+  window.addEventListener("resize", onResize);
+
+  return {
+    resize: (w, h) => exports.uui_hot_resize(w, h),
+    /** The retained plain-object tree (kinds, text, params, tap/edit/drag
+     *  ids) — what a driver reads; `send` fires an event on a node id the
+     *  way the renderer does (tap: "", edit: text, drag: "changed:x,y"). */
+    tree: () => retainedTree,
+    send: (id, value) => sendEvent(id, value),
+    setColorScheme: (dark) => {
+      applyColorScheme(!!dark);
+      scheduleRender();
+    },
+    stop() {
+      window.removeEventListener("resize", onResize);
+      exports = null;
+    },
+  };
+}
