@@ -22,8 +22,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js?v=160246584"></script>
-  <script src="./runtime/react-dom.production.min.js?v=160246584"></script>
+  <script src="./runtime/react.production.min.js?v=1770069163"></script>
+  <script src="./runtime/react-dom.production.min.js?v=1770069163"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -33,8 +33,8 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js?v=160246584";
-    import { Dependencies } from "./app_bridge.js?v=160246584";
+    import { boot } from "./runtime/boot.js?v=1770069163";
+    import { Dependencies } from "./app_bridge.js?v=1770069163";
 
     // --- The client's services (libraries/visor_services), in the browser ---
 
@@ -224,7 +224,7 @@
       settings: Dependencies.settingsBridge(() => settings),
       cache: Dependencies.cacheBridge(() => cache),
     };
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=160246584", rendererName: "react", dependencies, documentScroll: true })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=1770069163", rendererName: "react", dependencies, documentScroll: true })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>
