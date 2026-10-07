@@ -14,15 +14,15 @@
 // Uses the page's React (`window.React`, the same UMD global the tree renderer
 // uses), so the host app and the embedded surface share one React.
 //
-//   const { Isomer } = await import("./runtime/react_embed.js?v=135922274");
-//   <Isomer wasmURL="./app.wasm?v=135922274" renderer="react" style={{ height: 480 }} />
+//   const { Isomer } = await import("./runtime/react_embed.js?v=1458369575");
+//   <Isomer wasmURL="./app.wasm?v=1458369575" renderer="react" style={{ height: 480 }} />
 //   // or, with hot reload / dynamic delivery:
-//   <Isomer provider={appBundleProvider("./app.wasm?v=135922274", { hotReloadURL })} />
+//   <Isomer provider={appBundleProvider("./app.wasm?v=1458369575", { hotReloadURL })} />
 
-import { mountIsomer } from "./boot.js?v=135922274";
-import { packagedBundleProvider } from "./bundle_provider.js?v=135922274";
+import { mountIsomer } from "./boot.js?v=1458369575";
+import { packagedBundleProvider } from "./bundle_provider.js?v=1458369575";
 
-export function Isomer({ provider, wasmURL = "./app.wasm?v=135922274", renderer = "react", style }) {
+export function Isomer({ provider, wasmURL = "./app.wasm?v=1458369575", renderer = "react", style }) {
   const R = window.React;
   const ref = R.useRef(null);
   R.useEffect(() => {
