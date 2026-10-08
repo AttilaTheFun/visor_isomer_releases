@@ -22,8 +22,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js?v=1768005070"></script>
-  <script src="./runtime/react-dom.production.min.js?v=1768005070"></script>
+  <script src="./runtime/react.production.min.js?v=4070607236"></script>
+  <script src="./runtime/react-dom.production.min.js?v=4070607236"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -33,8 +33,8 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js?v=1768005070";
-    import { Dependencies } from "./app_bridge.js?v=1768005070";
+    import { boot } from "./runtime/boot.js?v=4070607236";
+    import { Dependencies } from "./app_bridge.js?v=4070607236";
 
     // --- The client's services (libraries/visor_services), in the browser ---
 
@@ -57,7 +57,9 @@
     // origin is the computer, found by its `/api/hello` (answered, or
     // asking for the password). GitHub Pages has no `/api/hello`, and
     // nothing happens there. The fixture never looks.
-    if (!settings.get("hosts") && !launch.get("fixture")) {
+    // (Since visor 0.23 the computers are kept under "secret.hosts", moved
+    // there from "hosts" on first read: either means some are saved.)
+    if (!settings.get("hosts") && !settings.get("secret.hosts") && !launch.get("fixture")) {
       try {
         const root = location.origin + location.pathname.replace(/\/[^/]*$/, "");
         const r = await fetch(root + "/api/hello", { cache: "no-store" });
@@ -224,7 +226,7 @@
       settings: Dependencies.settingsBridge(() => settings),
       cache: Dependencies.cacheBridge(() => cache),
     };
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=1768005070", rendererName: "react", dependencies, documentScroll: true })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=4070607236", rendererName: "react", dependencies, documentScroll: true })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>
