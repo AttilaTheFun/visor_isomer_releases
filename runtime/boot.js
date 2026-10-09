@@ -4,11 +4,11 @@
 // the runtime. Strings and structs copy at the boundary, so there is no
 // pointer/length or staging-buffer plumbing here.
 
-import { importedFilesWasi } from "./imported_files.js?v=3318967980";
-import { load } from "../app_bridge.js?v=3318967980";
-import { createRasterHost, registerImageBytes } from "./raster.js?v=3318967980";
-import { createReactTreeRenderer } from "./react_renderer.js?v=3318967980";
-import { applyPatch } from "./flat_tree.js?v=3318967980";
+import { importedFilesWasi } from "./imported_files.js?v=4034209750";
+import { load } from "../app_bridge.js?v=4034209750";
+import { createRasterHost, registerImageBytes } from "./raster.js?v=4034209750";
+import { createReactTreeRenderer } from "./react_renderer.js?v=4034209750";
+import { applyPatch } from "./flat_tree.js?v=4034209750";
 
 // `rendererName` picks the renderer (docs/renderer_layers.md): "webGPU"
 // (default) binds the self-drawing SwiftGPURenderer; "react" binds the
@@ -56,7 +56,7 @@ export async function boot({
     // static import would put swift_gpu's executor on EVERY page's critical
     // module graph (an unresolved ES module import evaluates NOTHING —
     // rendering as a silent blank page when the file isn't served).
-    const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=3318967980");
+    const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=4034209750");
     gpuHost = await createSwiftGPUHost(canvas);
     raster = createRasterHost({
       scale: window.devicePixelRatio || 1,
@@ -218,7 +218,7 @@ export async function boot({
               invalidate: () => scheduleRender(),
             });
           }
-          const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=3318967980");
+          const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=4034209750");
           gpuHost = await createSwiftGPUHost(canvas);
           bridge.gpuConnect(gpuHost);
           bridge.uuiSetDisplayScale(window.devicePixelRatio || 1);
@@ -464,6 +464,13 @@ export async function boot({
       // reader's gesture; the textarea route is for browsers without the
       // async API (or refusing it outside a secure context).
       if (key === "copy") { copyText(value); return; }
+      // `ShareLink`: the system's share sheet where the browser has one
+      // (a phone's), else the text to the clipboard.
+      if (key === "share") {
+        if (navigator.share) navigator.share({ text: value }).catch(() => {});
+        else copyText(value);
+        return;
+      }
       // An embedded surface must not reconfigure the host page.
       if (embedded) return;
       if (key === "windowTitle") document.title = value;
@@ -591,7 +598,7 @@ export async function mountIsomer(container, { wasmURL, bundle, renderer = "webG
   container.appendChild(canvas);
 
   const result = await boot({
-    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=3318967980"),
+    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=4034209750"),
     bundle, rendererName: renderer, embedded: true, dependencies, wasi,
   });
 

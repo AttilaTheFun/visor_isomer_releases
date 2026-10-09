@@ -12,9 +12,9 @@
 //
 // The shared runtime (swift_ffi/runtime/ts) is staged next to this file
 // by the wasm library macro; bridges in one directory share the one copy.
-import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=3318967980";
+import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=4034209750";
 // Re-exported so consumers keep importing them from this module.
-export { Types } from "./swift_ffi_runtime.js?v=3318967980";
+export { Types } from "./swift_ffi_runtime.js?v=4034209750";
 /** The runtime type token for `TextMetrics` (generic calls). */
 export const TextMetricsType = {
     encode(w, v) {
@@ -478,6 +478,129 @@ export function makeDispatcher_CacheBridge(impl, runtime) {
             }
         }
         throw new SwiftError("unknown CacheBridge method ordinal");
+    };
+}
+export class SwiftDictationBridge {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_visor_DictationBridge_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("DictationBridge used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_visor_DictationBridge_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    start() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return undefined;
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_visor_DictationBridge_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+    next() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return decodeWith(Types.string, blob);
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_visor_DictationBridge_invoke", handle, 1, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+    stop() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_visor_DictationBridge_invoke", handle, 2, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+}
+/** Wraps a consumer-implemented `DictationBridge` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_DictationBridge(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const callId = Types.int32.decode(r);
+                if (!runtime)
+                    throw new SwiftError("DictationBridge.start is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.start()).then((value) => resumeAsync(rt(), callId, new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0])), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+            case 1: {
+                const callId = Types.int32.decode(r);
+                if (!runtime)
+                    throw new SwiftError("DictationBridge.next is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.next()).then((value) => resumeAsync(rt(), callId, encodeWith(Types.string, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+            case 2: {
+                impl.stop();
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown DictationBridge method ordinal");
     };
 }
 export class SwiftGPUWebHost {
@@ -1097,6 +1220,18 @@ export const Dependencies = {
             },
         };
     },
+    dictationBridge: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_visor_DictationBridge",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_DictationBridge(impl, runtime)(args);
+            },
+        };
+    },
     gPUWebHost: (provide, lazy = true) => {
         let impl;
         return {
@@ -1294,6 +1429,7 @@ export async function load(wasm, options) {
     runtime.call("swift_ffi_visor_register_HttpBridge");
     runtime.call("swift_ffi_visor_register_SettingsBridge");
     runtime.call("swift_ffi_visor_register_CacheBridge");
+    runtime.call("swift_ffi_visor_register_DictationBridge");
     runtime.call("swift_ffi_register_GPUWebHost");
     runtime.call("swift_ffi_register_WebHost");
     return new SwiftUI(runtime);

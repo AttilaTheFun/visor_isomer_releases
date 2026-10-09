@@ -9,6 +9,7 @@
 // ABI (mirrors HotBridge.swift):
 //   imports (this host provides, module "uui_hot"):
 //     render_tree(ptr, len)  log(ptr, len)  epoch_millis()  schedule_render()
+//     platform_command(key, value)  host_value(key, out, capacity) -> length
 //   exports (this host calls):
 //     _initialize, uui_hot_start(w, h), uui_hot_render(), uui_hot_resize(w, h),
 //     uui_hot_set_color_scheme(dark), uui_hot_alloc/free, uui_hot_event(...)
@@ -17,9 +18,9 @@
 // (dependency lookups answer "absent"); a v3 reactor that never touches
 // `dependencies[...]` runs exactly as it does under a host without DI.
 
-import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=3318967980";
-import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=3318967980";
-import { applyPatch } from "./runtime/flat_tree.js?v=3318967980";
+import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=4034209750";
+import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=4034209750";
+import { applyPatch } from "./runtime/flat_tree.js?v=4034209750";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -94,6 +95,18 @@ export async function runHotBundle({ wasm, container, dependencies = {}, onLog =
       },
       schedule_render() {
         scheduleRender();
+      },
+      // The platform channel: "copy" to the clipboard, "openURL" in a new
+      // tab, "share" through navigator.share. A page reads no clipboard
+      // synchronously, so it holds no values (-1).
+      platform_command(kp, kl, vp, vl) {
+        const key = guestString(kp, kl), value = guestString(vp, vl);
+        if (key === "copy") navigator.clipboard?.writeText(value).catch(() => {});
+        else if (key === "openURL") window.open(value, "_blank");
+        else if (key === "share" && navigator.share) navigator.share({ text: value }).catch(() => {});
+      },
+      host_value() {
+        return -1;
       },
     },
     // The fixed v3 swift_ffi transport (the same bindings the generated
