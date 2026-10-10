@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=4034209750";
-import { SYMBOLS } from "./symbols.js?v=4034209750";
-import { storeFiles } from "./imported_files.js?v=4034209750";
+import { resolveImageSource } from "./raster.js?v=3768414462";
+import { SYMBOLS } from "./symbols.js?v=3768414462";
+import { storeFiles } from "./imported_files.js?v=3768414462";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -1580,6 +1580,9 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   let currentListStyle = null;
   // `.listRowSeparator(.hidden)`: no lines between the rows of this list.
   let currentListSeparators = true;
+  // `\.defaultMinListRowHeight` on this list when it is not the platform's
+  // 44 (its "minRowHeight"): the least a row is tall.
+  let currentListMinRowHeight = null;
   const INSET_TOP = "var(--uui-inset-top, 0px)";
   // The top safe area a pinned bar reaches into: the screen's (the status
   // bar), except in a sheet, whose top edge is below it.
@@ -2443,7 +2446,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   // row last had here (keyed by the row's identity).
   const rowHeights = new Map();
 
-  const ListCell = R.memo(function ListCell({ n, axis, listStyle, separators, sidebar, splitBack, depth }) {
+  const ListCell = R.memo(function ListCell({ n, axis, listStyle, separators, minRow, sidebar, splitBack, depth }) {
     R.useLayoutEffect(() => {
       if (!n.key || (n.params || {}).placeholder) return;
       const escaped = window.CSS && CSS.escape ? CSS.escape(n.key) : n.key.replace(/"/g, '\\"');
@@ -2456,13 +2459,13 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         style: { height: rowHeights.get(n.key) || 60, flex: "0 0 auto", alignSelf: "stretch" },
       });
     }
-    const saved = [currentListStyle, currentListSeparators, inSidebar, currentSplitBack, renderDepth];
-    currentListStyle = listStyle; currentListSeparators = separators; inSidebar = sidebar;
+    const saved = [currentListStyle, currentListSeparators, currentListMinRowHeight, inSidebar, currentSplitBack, renderDepth];
+    currentListStyle = listStyle; currentListSeparators = separators; currentListMinRowHeight = minRow; inSidebar = sidebar;
     currentSplitBack = splitBack; renderDepth = depth;
     try { return render(n, "cell", axis); }
-    finally { [currentListStyle, currentListSeparators, inSidebar, currentSplitBack, renderDepth] = saved; }
+    finally { [currentListStyle, currentListSeparators, currentListMinRowHeight, inSidebar, currentSplitBack, renderDepth] = saved; }
   }, (a, b) => a.n === b.n && a.axis === b.axis && a.listStyle === b.listStyle
-    && a.separators === b.separators && a.sidebar === b.sidebar);
+    && a.separators === b.separators && a.minRow === b.minRow && a.sidebar === b.sidebar);
 
   // The fixed frame (`.frame(width:height:)`) directly around the node being
   // rendered, if any: which of its dimensions are set.
@@ -2634,6 +2637,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const sidebarList = isList && isDesktop() && inSidebar > 0;
     const previousSeparators = currentListSeparators;
     if (isList) currentListSeparators = (n.params || {}).separators !== "0";
+    const previousMinRowHeight = currentListMinRowHeight;
+    if (isList) currentListMinRowHeight = (n.params || {}).minRowHeight != null ? Number(n.params.minRowHeight) : null;
     const previousListStyle = currentListStyle;
     if (insetGrouped) currentListStyle = "insetGrouped";
     else if (plainList) currentListStyle = "plain";
@@ -2652,7 +2657,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         if (c.params && c.params.cell) {
           return h(ListCell, {
             key: childKey, n: c, axis: childAxis, listStyle: currentListStyle,
-            separators: currentListSeparators, sidebar: inSidebar, splitBack: currentSplitBack, depth: renderDepth,
+            separators: currentListSeparators, minRow: currentListMinRowHeight, sidebar: inSidebar,
+            splitBack: currentSplitBack, depth: renderDepth,
           });
         }
         // The split's first column is its sidebar.
@@ -2667,6 +2673,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     } finally {
       currentListStyle = previousListStyle;
       currentListSeparators = previousSeparators;
+      currentListMinRowHeight = previousMinRowHeight;
     }
     if (tabPill) pendingTabPill = null;
 
@@ -3133,8 +3140,13 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             props.className = ((props.className || "") + " uui-sb-row" + (selected ? " uui-sb-selected" : "")).trim();
             if (selected) s.background = "var(--uui-tint, #0a84ff)";
           } else {
-            s.padding = "11px 16px";
-            s.minHeight = 44;
+            // The platform's row metrics, unless the app set its own:
+            // `.listRowInsets` on the row ("top,leading,bottom,trailing"),
+            // `\.defaultMinListRowHeight` on the list.
+            const insets = ((n.params || {}).rowInsets || "").split(",").map(Number);
+            s.padding = insets.length === 4 && insets.every(isFinite)
+              ? `${insets[0]}px ${insets[3]}px ${insets[2]}px ${insets[1]}px` : "11px 16px";
+            s.minHeight = currentListMinRowHeight != null ? currentListMinRowHeight : 44;
             s.boxSizing = "border-box";
             s.justifyContent = "center";
             if (currentListStyle === "insetGrouped") {
