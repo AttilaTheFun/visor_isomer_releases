@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=3577006775";
-import { SYMBOLS } from "./symbols.js?v=3577006775";
-import { storeFiles } from "./imported_files.js?v=3577006775";
+import { resolveImageSource } from "./raster.js?v=766980875";
+import { SYMBOLS } from "./symbols.js?v=766980875";
+import { storeFiles } from "./imported_files.js?v=766980875";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -1603,7 +1603,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   // stack), or null when the content is not a scroll.
   function edgeScroll(n) {
     let node = n;
-    for (let depth = 0; node && depth < 10; depth++) {
+    // (Deep enough for a screen's modifiers: see ComposeRenderer's.)
+    for (let depth = 0; node && depth < 32; depth++) {
       if (node.k === "scroll") return node.axis === "h" ? null : node;
       const p = node.params || {};
       // `.background` / `.overlay` layers ride alongside the content.
@@ -1975,6 +1976,16 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           ? options.map((title, i) => ({ title, checked: i === selected, index: i }))
           : options.slice(1).map((title, i) => ({ title, index: i + 1 }));
         const openIt = (e) => { e.stopPropagation(); showPopMenu(e.currentTarget, items, (i) => sendEvent(n.edit, String(items[i].index))); };
+        // A Menu with a label of the app's own (a symbol in a circle) is that
+        // label, as SwiftUI draws it: no chip around it, no chevrons (those
+        // are a picker's).
+        if (!isPicker && p.labelContent === "1" && kids && kids.length) {
+          return h("button", {
+            ...props, type: "button", onClick: openIt,
+            style: { ...props.style, display: "inline-flex", alignItems: "center", padding: 0, border: "none",
+              background: "none", color: "inherit", cursor: "pointer" },
+          }, kids[0]);
+        }
         return h("button", {
           ...props, type: "button", onClick: openIt,
           style: { ...props.style, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 15, padding: "6px 10px", borderRadius: 10,
@@ -2279,7 +2290,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   // through plain wrappers and a navigation stack.
   function backdropFill(start) {
     let node = start;
-    for (let depth = 0; node && depth < 10; depth++) {
+    for (let depth = 0; node && depth < 32; depth++) {
       const ch = (node.ch || []).filter((c) => !(c.params && c.params.layer));
       if (node.k === "hostView" && node.view === "navstack") { node = ch[0]; continue; }
       if (node.k === "stack" && node.axis === "z") {
