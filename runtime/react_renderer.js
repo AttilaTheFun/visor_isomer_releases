@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=3016197174";
-import { SYMBOLS } from "./symbols.js?v=3016197174";
-import { storeFiles } from "./imported_files.js?v=3016197174";
+import { resolveImageSource } from "./raster.js?v=1183905032";
+import { SYMBOLS } from "./symbols.js?v=1183905032";
+import { storeFiles } from "./imported_files.js?v=1183905032";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -67,6 +67,30 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   const h = R.createElement;
   const root = window.ReactDOM.createRoot(container);
 
+  // `.keyboardShortcut`: a key press finds the view marked with it on the
+  // page now and presses the button in it (⌘ is Ctrl off the Mac).
+  if (!window.__uuiShortcuts) {
+    window.__uuiShortcuts = true;
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+    document.addEventListener("keydown", (e) => {
+      const names = { Enter: "enter", Escape: "escape", Tab: "tab", " ": "space", Backspace: "backspace",
+        ArrowUp: "arrowup", ArrowDown: "arrowdown", ArrowLeft: "arrowleft", ArrowRight: "arrowright" };
+      const parts = [];
+      if (mac ? e.metaKey : e.ctrlKey) parts.push("cmd");
+      if (mac && e.ctrlKey) parts.push("ctrl");
+      if (e.altKey) parts.push("alt");
+      if (e.shiftKey) parts.push("shift");
+      parts.push(names[e.key] || (e.key || "").toLowerCase());
+      const marked = document.querySelectorAll(`[data-shortcut="${CSS.escape(parts.join("+"))}"]`);
+      const view = marked[marked.length - 1];
+      if (!view) return;
+      const button = view.matches("[data-tap]") ? view : view.querySelector("[data-tap]");
+      if (!button) return;
+      e.preventDefault();
+      button.click();
+    }, true);
+  }
+
   if (!document.getElementById("uui-react-style")) {
     const style = document.createElement("style");
     style.id = "uui-react-style";
@@ -106,13 +130,19 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       // one-row group comes out a capsule, as there.
       ".uui-ig{padding:12px 16px 24px;box-sizing:border-box;display:flex;flex-direction:column;align-self:stretch;width:100%}" +
       ".uui-ig-row{background:var(--uui-cell-bg,#fff);position:relative}" +
-      ".uui-ig-row::after{content:'';position:absolute;left:16px;right:0;bottom:0;height:1px;background:var(--uui-separator,rgba(60,60,67,0.29))}" +
+      // iOS 26's separator: inset 16pt from both edges, lighter than the
+      // older hairline.
+      ".uui-ig-row::after{content:'';position:absolute;left:var(--uui-sep-l,16px);right:var(--uui-sep-r,16px);bottom:0;height:1px;background:var(--uui-ig-sep)}" +
       ".uui-ig-row:first-child,.uui-ig-header+.uui-ig-row{border-top-left-radius:26px;border-top-right-radius:26px}" +
       ".uui-ig-row:last-child,.uui-ig-row:has(+ .uui-ig-header){border-bottom-left-radius:26px;border-bottom-right-radius:26px}" +
       ".uui-ig-row:last-child::after,.uui-ig-row:has(+ .uui-ig-header)::after{display:none}" +
       // Headers as iOS 26 draws them: sentence case, secondary, a step
       // smaller than the rows.
       ".uui-ig-header{padding:22px 16px 8px;font-size:15px;color:rgba(120,120,128,0.95)}" +
+      // iOS 26: the first header close under the title, 36pt between
+      // sections without one.
+      ".uui-ig-header:first-child{padding-top:0!important}" +
+      ".uui-ig-gap{padding:0!important;height:36px;min-height:36px}" +
       // Sheet content spans the panel; its own stacks keep their alignment.
       ".uui-sheet-body>*{align-self:stretch}" +
       ".uui-principal button{color:inherit}" +
@@ -140,16 +170,45 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       "html:not(.uui-document) body{overscroll-behavior:none;overflow:hidden;position:fixed;inset:0;width:100%;height:100dvh;margin:0}" +
       "[data-edge-scroll],.uui-sheet-body,[data-uui-scroll]{overscroll-behavior:contain}" +
       ".uui-no-sep::after{display:none!important}" +
+      ".uui-no-scrollbar::-webkit-scrollbar{display:none}" +
+      // The Mac's push button (a Form's button at regular width): a
+      // rounded fill, its label in the text colour.
+      // Dark by the system's setting unless the app chose light, or by
+      // the app's choice.
+      ".uui-mac-push{background:rgba(0,0,0,0.06);box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.18)}" +
+      ".uui-mac-push,.uui-mac-push *{color:rgba(0,0,0,0.85)!important}" +
+      "@media (prefers-color-scheme: dark){html:not([data-theme=light]) .uui-mac-push{background:rgba(255,255,255,0.13);box-shadow:inset 0 0.5px 0 rgba(255,255,255,0.12)}" +
+      "html:not([data-theme=light]) .uui-mac-push,html:not([data-theme=light]) .uui-mac-push *{color:rgba(255,255,255,0.88)!important}}" +
+      "html[data-theme=dark] .uui-mac-push{background:rgba(255,255,255,0.13);box-shadow:inset 0 0.5px 0 rgba(255,255,255,0.12)}" +
+      "html[data-theme=dark] .uui-mac-push,html[data-theme=dark] .uui-mac-push *{color:rgba(255,255,255,0.88)!important}" +
+      // Disabled, its label dimmed as the Mac dims it.
+      ".uui-mac-push[data-disabled],.uui-mac-push[data-disabled] *{color:rgba(0,0,0,0.25)!important}" +
+      "@media (prefers-color-scheme: dark){html:not([data-theme=light]) .uui-mac-push[data-disabled],html:not([data-theme=light]) .uui-mac-push[data-disabled] *{color:rgba(255,255,255,0.25)!important}}" +
+      "html[data-theme=dark] .uui-mac-push[data-disabled],html[data-theme=dark] .uui-mac-push[data-disabled] *{color:rgba(255,255,255,0.25)!important}" +
+      ".uui-mac-form-header,.uui-mac-form-header *{font-size:13px!important;line-height:16px!important;font-weight:600!important;color:inherit!important}" +
+      ".uui-ios-form-header{padding-top:4px;padding-bottom:4px}" +
+      ".uui-ios-form-header *{font-size:17px!important;line-height:22px!important;font-weight:600!important}" +
+      ".uui-form-sep>*{background:var(--uui-ig-sep)!important}" +
+      ".uui-ios-list-label{gap:17px!important}" +
+      ".uui-ios-list-label>:first-child{width:24px;min-width:24px;justify-content:center;font-size:17px}" +
+      ".uui-ios-list-label-tint>:first-child,.uui-ios-list-label-tint>:first-child *{color:var(--uui-tint,#007aff)!important}" +
+      ".uui-mac-form-footer *{font-size:12px!important;line-height:16px!important}" +
       // A grouped cell's fill, for a list outside a grouped container too
       // (the fallback used to be white, which flashed in dark mode).
-      ":root{--uui-cell-bg:#fff;--uui-separator:rgba(60,60,67,0.29)}" +
-      "@media (prefers-color-scheme: dark){:root{--uui-cell-bg:#1c1c1e;--uui-separator:rgba(84,84,88,0.65)}}" +
+      ":root{--uui-cell-bg:#fff;--uui-separator:rgba(60,60,67,0.29);--uui-ig-sep:rgba(60,60,67,0.12)}" +
+      "@media (prefers-color-scheme: dark){:root{--uui-cell-bg:#1c1c1e;--uui-separator:rgba(84,84,88,0.65);--uui-ig-sep:rgba(84,84,88,0.6)}}" +
+      "@media (min-width: 700px){:root{--uui-ig-sep:rgba(60,60,67,0.18)}}" +
+      "@media (min-width: 700px) and (prefers-color-scheme: dark){:root{--uui-ig-sep:rgba(255,255,255,0.1)}}" +
+      "@media (min-width: 700px) and (prefers-color-scheme: dark){:root{--uui-cell-bg:#2e2e30}}" +
       ".uui-plain-row{position:relative}" +
       ".uui-plain-row::after{content:'';position:absolute;left:16px;right:0;bottom:0;height:1px;background:rgba(120,120,128,0.3)}" +
       ".uui-plain-row:last-child::after{display:none}" +
       // The page is the app's ground: black or white, the safe areas too.
       "body{background:#fff;color-scheme:light dark}" +
       "@media (prefers-color-scheme: dark){body{background:#000}}" +
+      // Two columns wide, the Mac's dark window grey rather than the
+      // iPhone's black (MAC_DARK_PAGE).
+      "@media (min-width: 700px) and (prefers-color-scheme: dark){body{background:#232325}}" +
       ".uui-sb-row{transition:background-color 0.1s}" +
       ".uui-sb-row:hover:not(.uui-sb-selected){background:rgba(120,120,128,0.12)}" +
       ".uui-sb-selected,.uui-sb-selected *{color:#fff !important}" +
@@ -160,6 +219,30 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       "*{scrollbar-width:thin;scrollbar-color:rgba(120,120,128,0.45) transparent}";
     document.head.appendChild(style);
   }
+
+  // A text's typeface: a named one (`Font.custom`, the system's after it),
+  // the design's (`.serif`, `.rounded`, `.monospaced`), else the system's.
+  function fontFamilyCSS(p) {
+    p = p || {};
+    if (p.family) return `"${p.family.replace(/"/g, "")}", ${SYSTEM_FONT}`;
+    if (p.mono === "1") return MONO_FONT;
+    if (p.design === "serif") return `ui-serif, "New York", Georgia, serif`;
+    if (p.design === "rounded") return `ui-rounded, "SF Pro Rounded", ${SYSTEM_FONT}`;
+    return SYSTEM_FONT;
+  }
+
+  // A list row's padding: `.listRowInsets` ("top,leading,bottom,trailing",
+  // "-" for a side left to the list), each side the list's `d` otherwise.
+  const rowInsetValues = (p, d) => {
+    const parts = ((p || {}).rowInsets || "").split(",");
+    return parts.length === 4
+      ? parts.map((x, i) => (x === "-" || x === "" || !isFinite(Number(x)) ? d[i] : Number(x)))
+      : d;
+  };
+  const rowPadding = (p, d) => {
+    const v = rowInsetValues(p, d);
+    return `${v[0]}px ${v[3]}px ${v[2]}px ${v[1]}px`;
+  };
 
   const rgba = (c) =>
     c ? `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3]})` : undefined;
@@ -201,7 +284,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     // gives a `.frame(width:)` its width; the flexible siblings give way).
     if (n.width != null) { s.width = n.width; s.minWidth = n.width; s.flexShrink = 0; }
     if (n.height != null) { s.height = n.height; s.minHeight = n.height; }
-    if (n.bg) s.background = rgba(n.bg);
+    if (n.bg) s.background = namedFillCSS(n.params && n.params.bgName, n.bg);
     const gradient = gradientCSS(n);
     if (gradient) s.background = gradient;
     // cornerRadius has CLIP semantics (SwiftUI clips to the rounded rect);
@@ -266,6 +349,46 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       props.style = { ...(props.style || {}), "--uui-tint": params.tint, accentColor: params.tint };
     }
     if (params.clip === "1") props.style = { ...(props.style || {}), overflow: "hidden" };
+    // `.zIndex`, `.allowsHitTesting(false)`, `.blur`, `.help`, `.onHover`,
+    // `.keyboardShortcut` (found by the key handler below).
+    if (params.z) props.style = { ...(props.style || {}), zIndex: Number(params.z), position: (props.style || {}).position || "relative" };
+    if (params.nohit === "1") props.style = { ...(props.style || {}), pointerEvents: "none" };
+    if (params.blur) props.style = { ...(props.style || {}), filter: `blur(${Number(params.blur)}px)` };
+    if (params.help) props.title = params.help;
+    if (params.hover) {
+      const id = params.hover;
+      props.onMouseEnter = () => sendEvent(id, "1");
+      props.onMouseLeave = () => sendEvent(id, "0");
+    }
+    if (params.shortcut) props["data-shortcut"] = params.shortcut;
+    // A Form's parts in the platform's metrics. Two columns wide, the Mac's
+    // grouped form: a 13pt semibold header in the label colour, a 12pt
+    // footer. One column wide, iOS 26's: 52pt rows, 26pt corners, a 17pt
+    // semibold header, separators inset from both edges.
+    if (params.form) {
+      const desk = isDesktop();
+      const role = params.form;
+      if (desk && (role === "header" || role === "footer")) {
+        props.className = ((props.className || "") + " uui-mac-form-" + role).trim();
+      } else if (!desk && role === "header") {
+        props.className = ((props.className || "") + " uui-ios-form-header").trim();
+      } else if (!desk && role === "row") {
+        props.style = { ...(props.style || {}), minHeight: 52, paddingTop: 13, paddingBottom: 13 };
+      } else if (!desk && role === "card") {
+        props.style = { ...(props.style || {}), borderRadius: 26 };
+      }
+      if (role === "separator") props.className = ((props.className || "") + " uui-form-sep").trim();
+    }
+    // A Label in an iPhone's inset-grouped row: its icon in a column of its
+    // own and the title on the row's text line, the icon in the accent
+    // colour.
+    if (params.label === "1" && inListCell && !isDesktop() && currentListStyle === "insetGrouped") {
+      // (Only an icon whose colour is left to its container: a style set
+      // around the label, a destructive button's red, keep theirs.)
+      const icon = (n.ch || [])[0];
+      const plain = !!icon && ((icon.params || {}).autoColor === "1");
+      props.className = ((props.className || "") + " uui-ios-list-label" + (plain ? " uui-ios-list-label-tint" : "")).trim();
+    }
     // `.textSelection`: said outright, so a container that turns selection
     // off (a context menu's long press) doesn't turn it off here, and an
     // inner one overrides an outer one. (Safari still wants the prefix.)
@@ -402,6 +525,17 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       };
       // Web-idiomatic press feedback on tappable regions.
       props.className = ((props.className || "") + " uui-tap").trim();
+      // A row's button of the automatic style, two columns wide: the Mac's
+      // push button (a Form's on the Mac), not the iPhone's tinted words.
+      const pp = n.params || {};
+      if (pp.disabled === "1") { props["data-disabled"] = "1"; props.style = { ...(props.style || {}), cursor: "default" }; }
+      if (inListCell && pp.button === "automatic" && pp.role !== "destructive" && isDesktop()) {
+        props.className += " uui-mac-push";
+        Object.assign(props.style, {
+          padding: "3px 12px", borderRadius: 6, alignSelf: n.expandW ? props.style.alignSelf : "flex-start",
+          fontSize: 13, lineHeight: "18px",
+        });
+      }
       // List rows keep their list's corners (an inset group rounds only its
       // first and last row); other tappables get a soft press shape.
       if (props.style.borderRadius == null && (n.params || {}).cell == null) props.style.borderRadius = 8;
@@ -445,7 +579,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const multiline = p.axis === "v";
     // `TextEditor`: fills its container and scrolls inside — no line cap.
     const editor = p.editor === "1";
-    const lineHeight = (n.size || 15) * 1.35;
+    const lineHeight = (textSize(n) || 15) * 1.35;
     const fit = () => {
       const el = areaRef.current;
       if (!el || editor) return;
@@ -462,7 +596,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const plain = p.fieldStyle !== "roundedBorder";
     const style = {
       ...(n.baseStyle || {}),
-      fontSize: n.size || 15,
+      fontSize: textSize(n) || 15,
       padding: plain ? 0 : "7px 10px",
       border: plain ? "none" : "1px solid rgba(120,120,128,0.35)",
       borderRadius: plain ? 0 : 8,
@@ -562,7 +696,10 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         },
       });
     }
-    return h("input", { ...shared, type: n.searchStyle ? "search" : "text", style });
+    // A `SecureField`: the browser's password input (masked, offered to
+  // its password manager).
+  if (p.secure === "1") return h("input", { ...shared, type: "password", autoComplete: "current-password", style });
+  return h("input", { ...shared, type: n.searchStyle ? "search" : "text", style });
   }
 
   // A DOM key event as `KeyPress` hears it (KeyPress(hostValue:)): phase and
@@ -859,8 +996,17 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         }, itemContent(trailing[i] || "", trailingSymbols[i]));
     // Symmetric side clusters keep the title centered.
     const side = { display: "flex", alignItems: "center", minWidth: 64 };
+    // A split column's bar at regular width, the Mac's: the sidebar toggle
+    // (at the end of the sidebar's bar, or the start of the detail's while
+    // the sidebar is hidden) and the detail's title at its leading edge.
+    const sidebarToggle = n.onToggleSidebar ? h("button", {
+      key: "sidebar", className: "uui-bar-item", style: circle, onClick: n.onToggleSidebar,
+      "aria-label": n.desktopColumn === "sidebar" ? "Hide Sidebar" : "Show Sidebar",
+    }, symbolSVG(h, "sidebar.left", 17, "currentColor", 500, { verticalAlign: "0" }) || "◧") : null;
+    const leadingTitle = desktop && !!n.desktopColumn && n.desktopColumn !== "sidebar" && principal < 0 && !n.pill && !!p.title;
     return h(CenteredBar, { style: bar },
       h("div", { style: side },
+        n.desktopColumn !== "sidebar" ? sidebarToggle : null,
         n.pill && desktop && p.title
           ? h("span", { key: "lt", style: { fontWeight: 600, fontSize: 15, padding: "0 6px", whiteSpace: "nowrap" } }, p.title)
           : null,
@@ -872,10 +1018,18 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
               onClick: () => (n.onBack ? n.onBack() : sendEvent(n.edit, "back")) },
               symbolSVG(h, "chevron.left", desktop ? 17 : 21, "currentColor", 600, { verticalAlign: "0" }), desktop ? "Back" : null)
           : null,
-        leading.map((title, i) => h("button", {
+        leading.map((title, i) => n.hiddenLeading && n.hiddenLeading.has(i) ? null : h("button", {
           key: `l${i}`, className: "uui-bar-item", style: itemStyle(leadingSymbols[i]), "aria-label": leadingLabels[i] || undefined,
           onClick: () => sendEvent(n.edit, `leading:${i}`),
-        }, itemContent(title, leadingSymbols[i])))),
+        }, itemContent(title, leadingSymbols[i]))),
+        leadingTitle
+          ? h("div", {
+              key: "title",
+              style: { display: "flex", flexDirection: "column", minWidth: 0, padding: "0 8px", lineHeight: 1.2 },
+            },
+              h("span", { style: { fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, p.title),
+              p.subtitle ? h("span", { style: { fontSize: 11, opacity: 0.55, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, p.subtitle) : null)
+          : null),
       h("div", {
         style: {
           textAlign: "center", fontWeight: 600, fontSize: 16,
@@ -895,7 +1049,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             options: n.pill.options, selected: n.pill.selected, dark, compact: true,
             onSelect: n.pill.onSelect,
           })
-        : principal < 0 && p.subtitle
+        : !leadingTitle && principal < 0 && p.subtitle
         ? h("div", { style: { display: "flex", flexDirection: "column", lineHeight: 1.15 } },
             h("span", null, p.title || ""),
             h("span", { style: { fontSize: 12, fontWeight: 400, opacity: 0.6 } }, p.subtitle))
@@ -908,9 +1062,53 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             fontWeight: 600, fontSize: 16, padding: "4px 8px", borderRadius: 8, background: "none",
             color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
           })
-        : (p.title || "")),
+        : leadingTitle ? "" : (p.title || "")),
       h("div", { style: { ...side, justifyContent: "flex-end" } },
-        trailing.map((title, i) => i === principal ? null : trailingItem(i))));
+        trailing.map((title, i) => i === principal || (n.hiddenTrailing && n.hiddenTrailing.has(i)) ? null : trailingItem(i)),
+        // A bottom bar's buttons, in the Mac's toolbar.
+        (n.liftedButtons || []).map((b, i) => h("button", {
+          key: `lift${i}`, className: "uui-bar-item", style: itemStyle(b.symbol), "aria-label": b.label || undefined,
+          onClick: () => sendEvent(b.tap, ""),
+        }, itemContent(b.label || "•", b.symbol))),
+        n.desktopColumn === "sidebar" ? sidebarToggle : null));
+  }
+
+  // A screen's `.bottomBar` that is only buttons (and the room between
+  // them): what the desktop draws in the column's bar instead.
+  function liftedBottomBar(n) {
+    const p = n.params || {};
+    if (n.k !== "stack" || p.inset !== "bottom" || !p.bottomBar) return false;
+    const kinds = p.bottomBar.split("\n");
+    return kinds.includes("button") && kinds.every((k) => k === "button" || k === "fixed" || k === "flex");
+  }
+
+  // The buttons of the bottom bar in a navigation stack's content (through
+  // the wrappers and insets around the screen), as bar items: what to send,
+  // the symbol, the name.
+  function liftedBarButtons(start) {
+    let found = null;
+    const visit = (node, depth) => {
+      if (!node || found || depth > 24) return;
+      if (liftedBottomBar(node)) { found = node; return; }
+      if (node.k === "scroll" || (node.k === "hostView" && node.view === "navstack")) return;
+      for (const c of node.ch || []) visit(c, depth + 1);
+    };
+    visit(start, 0);
+    if (!found) return [];
+    const kinds = found.params.bottomBar.split("\n").filter((k) => k !== "fixed");
+    const row = (((found.ch || [])[1] || {}).ch || [])[0] || {};
+    const first = (node, test) => {
+      if (!node) return null;
+      if (test(node)) return node;
+      for (const c of node.ch || []) { const hit = first(c, test); if (hit) return hit; }
+      return null;
+    };
+    return kinds.map((kind, i) => kind === "button" ? (row.ch || [])[i] : null).filter(Boolean).map((button) => {
+      const tap = first(button, (x) => !!x.tap);
+      const symbol = first(button, (x) => !!(x.params && x.params.symbol));
+      const named = first(button, (x) => !!(x.params && x.params.a11yLabel));
+      return tap ? { tap: tap.tap, symbol: symbol ? symbol.params.symbol : "", label: named ? named.params.a11yLabel : "" } : null;
+    }).filter(Boolean);
   }
 
   function tabBar(n) {
@@ -968,12 +1166,44 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const dark = p.dark === "1";
     const depth = Number(p.depth || 0);
     const inline = p.displayMode === "inline" || isDesktop();
+    // The split column this stack is the root of (regular width).
+    const deskColumn = !isDesktop() ? null
+      : desktopColumnStacks.get(n) || (currentDesktopColumn && !currentDesktopColumn.taken && !columnRootStack(currentDesktopColumn.node) ? currentDesktopColumn : null);
+    if (deskColumn) deskColumn.taken = true;
+    // A sheet's stack on the desktop, the Mac's: its title at the top
+    // leading edge, its cancellation, confirmation and destructive actions
+    // as push buttons along the bottom at the trailing end (the
+    // confirmation last, in the accent colour), not in the bar.
+    const macSheet = isDesktop() && presentationDepth > 0 && depth === 0;
+    const sheetActions = [];
+    const movedLeading = new Set(), movedTrailing = new Set();
+    if (macSheet) {
+      const places = (key) => (p[key] ? p[key].split("\n") : []);
+      const bottom = (place) => place === "cancellationAction" || place === "confirmationAction" || place === "destructiveAction";
+      const leadingTitles = p.leading ? p.leading.split("\n") : [];
+      const trailingTitles = p.trailingItems ? p.trailingItems.split("\n") : [];
+      places("leadingPlacements").forEach((place, i) => {
+        if (bottom(place)) { movedLeading.add(i); sheetActions.push({ title: leadingTitles[i] || "", place, event: `leading:${i}` }); }
+      });
+      places("trailingPlacements").forEach((place, i) => {
+        if (bottom(place) && String(i) !== String(p.principal)) {
+          movedTrailing.add(i); sheetActions.push({ title: trailingTitles[i] || "", place, event: `trailingItem:${i}` });
+        }
+      });
+      // Cancel, then whatever else, then the confirmation.
+      const rank = (a) => a.place === "cancellationAction" ? 0 : a.place === "confirmationAction" ? 2 : 1;
+      sheetActions.sort((a, b) => rank(a) - rank(b));
+    }
     const leading = p.leading ? p.leading.split("\n") : [];
     const trailing = p.trailingItems ? p.trailingItems.split("\n") : [];
     // At its root inside a compact split view, this bar carries the split's
     // Back (to the previous column) — the phone shape of a split detail.
     const splitBack = depth === 0 && currentSplitBack ? currentSplitBack.back : null;
-    const showBar = depth > 0 || leading.length > 0 || trailing.length > 0 || inline || !!pill || !!splitBack;
+    // On the desktop a bottom bar's buttons join this bar (the Mac has its
+    // toolbar where a phone has the bottom bar).
+    const liftedButtons = isDesktop() ? liftedBarButtons((n.ch || [])[0]) : [];
+    const showBar = depth > 0 || leading.length > 0 || trailing.length > 0 || inline || !!pill || !!splitBack
+      || !!(deskColumn && deskColumn.toggle) || liftedButtons.length > 0;
     // Bar-only chrome pins over the content (the iOS shape): translucent,
     // stationary, extending into the top safe area, with its controls in
     // the 44pt row beneath it; the content flows under it with an inset.
@@ -986,7 +1216,9 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     // ends (iOS's hard edge), not the soft frost.
     const content = (n.ch || [])[0];
     const scrolled = pinned ? edgeScroll(content) : null;
-    const hardEdge = !!scrolled && (scrolled.params || {}).edgeTop === "hard";
+    // The desktop's bar has the Mac's hard edge too (one column keeps the
+    // soft one, as iOS does).
+    const hardEdge = !!scrolled && ((scrolled.params || {}).edgeTop === "hard" || isDesktop());
     const rows = [];
     if (showBar) {
       rows.push(h(pinned ? "div" : R.Fragment, pinned ? {
@@ -1010,8 +1242,18 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           key: "band",
           style: {
             position: "absolute", inset: 0, pointerEvents: "none",
-            background: backdropFill(content) || (dark ? "#000" : "#fff"),
+            background: backdropFill(content) || (dark ? (isDesktop() ? MAC_DARK_PAGE : "#000") : "#fff"),
             borderBottom: `0.5px solid ${dark ? "rgba(84,84,88,0.65)" : "rgba(60,60,67,0.29)"}`,
+          },
+        }) : pinned && docScroll() ? h("div", {
+          key: "fade",
+          // On a document-scrolled page (Safari): no backdrop filter (see
+          // above), but the content still fades out under the bar, as iOS
+          // 26's soft edge has it — the page's ground over it, easing to
+          // nothing a little below the bar.
+          style: {
+            position: "absolute", left: 0, right: 0, top: 0, bottom: -14, pointerEvents: "none",
+            background: `linear-gradient(to bottom, ${backdropFill(content) || (dark ? "#000" : "#fff")} 0%, ${backdropFill(content) || (dark ? "#000" : "#fff")} 62%, transparent 100%)`,
           },
         }) : pinned && !docScroll() ? h("div", {
           key: "frost",
@@ -1029,8 +1271,13 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         pill,
         onBack: splitBack,
         principalView,
+        desktopColumn: deskColumn ? deskColumn.column : macSheet ? "sheet" : null,
+        onToggleSidebar: deskColumn ? deskColumn.toggle : null,
+        hiddenLeading: movedLeading, hiddenTrailing: movedTrailing,
+        liftedButtons,
         params: {
-          title: inline || !p.title ? (p.title || "") : "",
+          // No title over the Mac's sidebar: the window's is the detail's.
+          title: deskColumn && deskColumn.column === "sidebar" ? "" : inline || !p.title ? (p.title || "") : "",
           subtitle: inline ? (p.subtitle || "") : "",
           back: depth > 0 || splitBack ? "1" : "0",
           dark: p.dark,
@@ -1050,6 +1297,11 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     }
     if (isDesktop() && p.displayMode !== "inline" && p.title && showBar) {
       rows.push(h("div", { key: "topgap", style: { height: 12, flex: "none" } }));
+    }
+    // An iPhone's large title sits under its bar's row even when the row
+    // holds nothing.
+    if (!isDesktop() && !showBar && !inline && p.title) {
+      rows.push(h("div", { key: "emptybar", style: { height: 52, flex: "none" } }));
     }
     if (!inline && p.title) {
       rows.push(h("div", {
@@ -1072,7 +1324,12 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         }, p.subtitle));
       }
     }
-    if (p.searchPrompt != null && p.searchPrompt !== "") {
+    if (p.searchPrompt != null && p.searchPrompt !== "" && isDesktop()) {
+      rows.push(h(MacSearchField, {
+        key: "search", value: p.searchValue || "", prompt: p.searchPrompt, dark,
+        onInput: (text) => sendEvent(n.edit, `search:${text}`),
+      }));
+    } else if (p.searchPrompt != null && p.searchPrompt !== "") {
       rows.push(h("input", {
         key: "search",
         type: "search",
@@ -1105,6 +1362,29 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         },
       }, kids));
     }
+    if (sheetActions.length) {
+      rows.push(h("div", {
+        key: "sheet-actions",
+        // The Mac's sheet keeps its buttons below a hairline, 20pt in.
+        style: {
+          display: "flex", justifyContent: "flex-end", gap: 8, padding: 20, flex: "none",
+          borderTop: `1px solid ${dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+        },
+      }, sheetActions.map((action) => {
+        const confirm = action.place === "confirmationAction";
+        const destructive = action.place === "destructiveAction";
+        return h("button", {
+          key: action.event, className: "uui-bar-item", onClick: () => sendEvent(n.edit, action.event),
+          style: {
+            minWidth: 72, height: 24, padding: "0 12px", borderRadius: 6, fontSize: 13, fontWeight: confirm ? 600 : 400,
+            fontFamily: SYSTEM_FONT, cursor: "pointer",
+            border: confirm ? "none" : `1px solid ${dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+            background: confirm ? "var(--uui-tint, #0a84ff)" : dark ? "rgba(255,255,255,0.12)" : "#fff",
+            color: confirm ? "#fff" : destructive ? "#ff453a" : "inherit",
+          },
+        }, action.title);
+      })));
+    }
     return h("div", {
       key,
       "data-navstack": "1",
@@ -1115,6 +1395,35 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         ...(pinned ? { "--uui-inset-top": `calc(52px + ${SAFE_TOP})` } : {}),
       },
     }, rows);
+  }
+
+  // The Mac's search field (agent_ui's on the Mac): a capsule 36pt tall
+  // inset 12pt from the column's sides, a magnifying glass, 13pt type and a
+  // clear button once there is text.
+  function MacSearchField({ value, prompt, dark, onInput }) {
+    const [text, setText] = R.useState(value);
+    const change = (next) => { setText(next); onInput(next); };
+    const secondary = dark ? "rgba(235,235,245,0.6)" : "rgba(60,60,67,0.6)";
+    return h("div", {
+      style: {
+        display: "flex", alignItems: "center", gap: 6, height: 36, boxSizing: "border-box",
+        padding: "0 12px", margin: "0 12px 8px", borderRadius: 18, flex: "none",
+        background: dark ? "rgba(235,235,245,0.11)" : "rgba(60,60,67,0.11)",
+      },
+    },
+      symbolSVG(h, "magnifyingglass", 13, secondary, 500, { verticalAlign: "0", flex: "none" }),
+      h("input", {
+        type: "text", value: text, placeholder: prompt, "aria-label": prompt,
+        onInput: (e) => change(e.target.value),
+        style: {
+          flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: 0,
+          fontSize: 13, color: "inherit", fontFamily: SYSTEM_FONT,
+        },
+      }),
+      text ? h("button", {
+        "aria-label": "Clear the search", onClick: () => change(""),
+        style: { border: "none", background: "none", padding: 0, cursor: "pointer", display: "inline-flex", flex: "none" },
+      }, symbolSVG(h, "xmark.circle.fill", 13, secondary, 400, { verticalAlign: "0" })) : null);
   }
 
   // Semantic `navsplit` → three columns (240 | 340 | remainder) with
@@ -1353,6 +1662,25 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   // (set while the pane renders; navStack shows it as the bar's Back when the
   // pane's stack is at its root).
   let currentSplitBack = null;
+  // At regular width, the split column being drawn and its sidebar toggle,
+  // for the navigation bar at the column's root: the Mac's window chrome
+  // (the toggle at the top of the sidebar, or of the detail while the
+  // sidebar is hidden; no title over the sidebar; the detail's title at its
+  // leading edge). Taken by the outermost navigation stack in the column.
+  let currentDesktopColumn = null;
+  // The same, by the stack's node: a stack a component draws later (inside
+  // an inspector's row, say) still finds its column.
+  const desktopColumnStacks = new WeakMap();
+  // A column's outermost navigation stack: the first, depth first.
+  function columnRootStack(node, depth = 0) {
+    if (!node || depth > 16) return null;
+    if (node.k === "hostView" && node.view === "navstack") return node;
+    for (const child of node.ch || []) {
+      const found = columnRootStack(child, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
 
   function NavSplit({ dark, kids, nodes, preferredPane, compactTick, edit, sidebarWidth, contentWidth, visibility }) {
     // `preferredCompactColumn`: the compact presentation starts on the
@@ -1380,6 +1708,16 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       }
     }, [compactTick]);
     const compact = window.innerWidth < 700;
+    // The sidebar toggle (regular width): hidden is `.detailOnly`, and the
+    // app's `columnVisibility` binding follows ("visibility:<name>").
+    const [collapsed, setCollapsed] = R.useState(visibility === "detailOnly");
+    R.useEffect(() => { setCollapsed(visibility === "detailOnly"); }, [visibility]);
+    const toggleSidebar = () => {
+      const next = !collapsed;
+      setCollapsed(next);
+      if (edit) sendEvent(edit, `visibility:${next ? "detailOnly" : "all"}`);
+    };
+    const desk = (name, index, toggle) => h(DesktopColumn, { key: name, node: nodes[index], column: name, toggle });
     const divider = (k) => h("div", {
       key: k,
       style: { width: 1, flex: "none", alignSelf: "stretch", background: dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)" },
@@ -1399,33 +1737,64 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     }, kid);
     const sidebarBg = dark ? "rgba(30,30,32,0.94)" : "rgba(247,247,247,0.94)";
     if (!compact) {
+      // The Mac's sidebar: a panel floating 8pt inside the window, rounded,
+      // a shade apart from the window it sits on, no divider beside it.
+      const floating = (k, width, kid) => h("div", {
+        key: k,
+        style: {
+          width, flex: "none", display: "flex", flexDirection: "column", minHeight: 0, alignSelf: "stretch",
+          margin: "8px 0 8px 8px", borderRadius: 14, overflow: "hidden", boxSizing: "border-box",
+          background: dark ? MAC_DARK_SIDEBAR : "rgba(246,246,246,0.96)",
+          border: `1px solid ${dark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.08)"}`,
+        },
+      }, kid);
+      const page = dark ? MAC_DARK_PAGE : undefined;
       // `columnVisibility` at regular width: `.detailOnly` shows the detail
       // alone, `.doubleColumn` drops a three-column split's sidebar; `.all`
-      // / automatic show every column (there is no user collapse control on
-      // this host, so `.all` pins the sidebar by construction).
-      const detailOnly = visibility === "detailOnly";
+      // / automatic show every column. The sidebar's toggle (the Mac's) sits
+      // in the bar at the top of the sidebar, or of the detail while the
+      // sidebar is hidden.
+      const detailOnly = collapsed;
       const hideSidebar = detailOnly || (visibility === "doubleColumn" && paneCount === 3);
       const row = { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" };
       if (paneCount === 2) {
-        return h("div", { style: row },
-          hideSidebar ? null : column("sidebar", sidebarWidth, kids[0], sidebarBg),
-          hideSidebar ? null : divider("d0"),
-          column("detail", null, kids[1]));
+        return h("div", { style: { ...row, background: page } },
+          hideSidebar ? null : floating("sidebar", sidebarWidth, desk("sidebar", 0, toggleSidebar)),
+          column("detail", null, desk("detail", 1, hideSidebar ? toggleSidebar : null), page));
       }
-      return h("div", { style: row },
-        hideSidebar ? null : column("sidebar", sidebarWidth, kids[0], sidebarBg),
-        hideSidebar ? null : divider("d0"),
-        detailOnly ? null : column("content", contentWidth, kids[1]),
+      return h("div", { style: { ...row, background: page } },
+        hideSidebar ? null : floating("sidebar", sidebarWidth, desk("sidebar", 0, toggleSidebar)),
+        detailOnly ? null : column("content", contentWidth, desk("content", 1, hideSidebar ? toggleSidebar : null), page),
         detailOnly ? null : divider("d1"),
-        column("detail", null, kids[2]));
+        column("detail", null, desk("detail", 2, detailOnly ? toggleSidebar : null), page));
     }
     // Compact: pane 0 = sidebar, 1 = content, 2 = detail. The guest advances
     // the pane on selection changes; Back retreats — drawn in the pane's
     // own navigation bar when it has one (a `SplitBackBar` row otherwise).
-    // Every compact pane sits on the grouped background (iOS: the inbox's
-    // inset-grouped list and the thread share it).
-    return h(CompactPane, { key: `pane${pane}`, pane, node: nodes[pane], background: GROUPED_BACKGROUND(dark),
+    // A compact pane sits on its content's ground, as iOS's do: an
+    // inset-grouped list's or a Form's grouped grey, the page's white (or
+    // black) behind anything else (a conversation).
+    return h(CompactPane, { key: `pane${pane}`, pane, node: nodes[pane], background: paneGround(nodes[pane], dark),
       onBack: pane > 0 ? () => setPane(pane - 1) : null, dark });
+  }
+
+  // A column at regular width, rendered here (not the eagerly rendered kid)
+  // so the navigation stack at its root sees which column it is.
+  function DesktopColumn({ node, column, toggle }) {
+    if (!node) return null;
+    const previous = currentDesktopColumn;
+    currentDesktopColumn = { column, toggle, taken: false, node };
+    const stack = columnRootStack(node);
+    if (stack) desktopColumnStacks.set(stack, currentDesktopColumn);
+    // The sidebar's lists are the sidebar's (as the split's first child is
+    // when rendered in place).
+    if (column === "sidebar") inSidebar++;
+    try {
+      return render(node, `${column}:${node.k}${node.view || ""}`, "v");
+    } finally {
+      currentDesktopColumn = previous;
+      if (column === "sidebar") inSidebar--;
+    }
   }
 
   function CompactPane({ pane, node, background, onBack, dark }) {
@@ -1554,8 +1923,32 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   const BAR_BACKGROUND = (dark) => dark ? "rgba(28,28,30,0.82)" : "rgba(249,249,249,0.82)";
   // Apple's grouped palette (systemGroupedBackground,
   // secondarySystemGroupedBackground, separator).
-  const GROUPED_BACKGROUND = (dark) => dark ? "#000000" : "#f2f2f7";
-  const CELL_BACKGROUND = (dark) => dark ? "#1c1c1e" : "#ffffff";
+  const GROUPED_BACKGROUND = (dark) => dark ? (isDesktop() ? MAC_DARK_PAGE : "#000000") : "#f2f2f7";
+  // The desktop's dark window (the Mac's grey, not the iPhone's black) and
+  // its floating sidebar panel, a shade darker.
+  const MAC_DARK_PAGE = "#232325";
+  const MAC_DARK_SIDEBAR = "#1b1b1d";
+  // The grounds the guest names ("fillName"), in the desktop's dark palette:
+  // the Mac's grey where the iPhone's dark is black, and cells a shade up.
+  const MAC_DARK_FILLS = {
+    groupedBackground: MAC_DARK_PAGE, barBackground: MAC_DARK_PAGE, secondaryBackground: "#2e2e30",
+    // A sheet is the window's grey, its groups a step lighter (as the
+    // Mac's Form sheets are).
+    elevatedGroupedBackground: MAC_DARK_PAGE, elevatedSecondaryBackground: "#2b2b2d",
+  };
+  function fillCSS(n) { return namedFillCSS(n.params && n.params.fillName, n.fill); }
+  function namedFillCSS(name, color) {
+    // A grouped row's fill in the Mac's sidebar, which has none (an app's
+    // own row background puts it under its highlight).
+    if (name === "secondaryBackground" && inSidebar && isDesktop()) return "transparent";
+    if (name && isDesktop() && pageDark() && MAC_DARK_FILLS[name]) return MAC_DARK_FILLS[name];
+    // A sheet's grounds are the sheet's to say (a floating sheet's glass
+    // shows through them).
+    if (name === "elevatedGroupedBackground") return `var(--uui-sheet-grouped-bg, ${rgba(color)})`;
+    if (name === "elevatedSecondaryBackground") return `var(--uui-sheet-cell-bg, ${rgba(color)})`;
+    return rgba(color);
+  }
+  const CELL_BACKGROUND = (dark) => dark ? (isDesktop() ? "#2e2e30" : "#1c1c1e") : "#ffffff";
   const SEPARATOR = (dark) => dark ? "rgba(84,84,88,0.65)" : "rgba(60,60,67,0.29)";
   const pageDark = () => document.documentElement.dataset.theme === "dark"
     || (!!window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -1565,6 +1958,20 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   // 52px toolbar row, borderless bar buttons, the sidebar list style,
   // content-sized sheets).
   const isDesktop = () => window.innerWidth >= 700;
+  // The Mac's type ramp (points, as its text styles are), for a page as wide
+  // as the Mac's two columns: the desktop web is the Mac's shape, as a phone's
+  // width is the iPhone's, whose sizes the guest sends. A text's own size
+  // (`.system(size:)`, no style) stays as given.
+  const MAC_TEXT_SIZES = { largeTitle: 26, title: 22, title2: 17, title3: 15, headline: 13, body: 13,
+    callout: 12, subheadline: 11, footnote: 10, caption: 10, caption2: 10 };
+  function textSize(n) {
+    const style = n.params && n.params.textStyle;
+    return isDesktop() && style && MAC_TEXT_SIZES[style] ? MAC_TEXT_SIZES[style] : n.size;
+  }
+  // The Mac's headline is bold where the iPhone's is semibold.
+  function textWeight(n) {
+    return isDesktop() && n.params && n.params.textStyle === "headline" && n.weight === 600 ? 700 : n.weight;
+  }
   // How many split-view sidebar columns enclose the rows being rendered.
   let inSidebar = 0;
   // Document scrolling (a phone-width page, opted in with `documentScroll`):
@@ -2295,12 +2702,25 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       if (node.k === "hostView" && node.view === "navstack") { node = ch[0]; continue; }
       if (node.k === "stack" && node.axis === "z") {
         const first = ch[0];
-        return first && first.k === "shape" && first.expandH && first.fill ? rgba(first.fill) : null;
+        return first && first.k === "shape" && first.expandH && first.fill ? fillCSS(first) : null;
       }
       if ((node.k === "box" || (node.k === "stack" && node.axis === "v")) && ch.length === 1) { node = ch[0]; continue; }
       return null;
     }
     return null;
+  }
+
+  // The ground a compact pane shows behind its content: a backdrop the
+  // content draws, a grouped list's grey, else the page's.
+  function paneGround(node, dark) {
+    const fill = backdropFill(node);
+    if (fill) return fill;
+    let content = node;
+    if (content && content.k === "hostView" && content.view === "navstack") content = (content.ch || [])[0];
+    const scroll = edgeScroll(content);
+    const p = (scroll && scroll.params) || {};
+    if (p.list && p.listStyle !== "plain") return GROUPED_BACKGROUND(dark);
+    return dark ? "#000" : "#fff";
   }
 
   // Whether a presentation's content is a grouped list (through its
@@ -2324,7 +2744,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     // list's.
     const backdrop = n.style !== "alert" ? backdropFill((n.ch || [])[0]) : null;
     const panelBg = backdrop
-      || (n.style !== "alert" && sheetHoldsGroupedList(n) ? (pageDark() ? "#1c1c1e" : GROUPED_BACKGROUND(false)) : null)
+      || (n.style !== "alert" && sheetHoldsGroupedList(n) ? (pageDark() ? (isDesktop() ? MAC_DARK_PAGE : "#1c1c1e") : GROUPED_BACKGROUND(false)) : null)
       || rgba(n.bg) || "#fff";
     const headColor = n.color ? rgba(n.color) : undefined;
     const messageColor = n.color
@@ -2366,7 +2786,9 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const params = n.params || {};
     const cover = !!(params.cover === "1");
     const detents = (params.detents || "large").split(",");
-    const grabber = params.grabber !== "0" && !cover && compact;
+    // `.presentationDragIndicator(.automatic)`: shown when there is a
+    // detent to drag to.
+    const grabber = (params.grabber === "1" || (params.grabber !== "0" && detents.length > 1)) && !cover && compact;
     const canDismiss = params.nodismiss !== "1" && !cover;
     if (cover) {
       return h("div", { style: { position: "fixed", inset: 0, display: "flex", zIndex: 20, background: panelBg, flexDirection: "column", alignItems: "stretch" } }, kids);
@@ -2380,18 +2802,52 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         style: { background: panelBg, borderRadius: 14, minWidth: 280, maxWidth: 420, padding: 20, boxShadow: "0 12px 40px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", alignItems: "center" },
       }, kids));
     }
-    return h(Sheet, { key: n.dismiss, n, kids, compact, greedy, panelBg, detents, grabber, canDismiss });
+    const sheet = h(Sheet, { key: n.dismiss, n, kids, compact, greedy, panelBg, detents, grabber, canDismiss });
+    // At regular width the sheet belongs to the window, as the Mac's does:
+    // centred on it, everything behind dimmed — drawn at the root, not in
+    // the column that presented it (whose own containing block, a column
+    // with a transform or a filter, would hold a fixed layer to itself).
+    return compact ? sheet : window.ReactDOM.createPortal(sheet, container, n.dismiss);
   }
 
   /// The sheet panel with its entrance animation, detents and drag-to-dismiss.
   function Sheet({ n, kids, compact, greedy, panelBg, detents, grabber, canDismiss }) {
     const [shown, setShown] = R.useState(false);
+    // Regular width, a growing content (a Form, a List): the Mac's sheet is
+    // as tall as its rows, up to most of the window. Laid out at the most it
+    // may be, then fitted to what its scroll holds.
+    const panelRef = R.useRef(null);
+    const [fitted, setFitted] = R.useState(null);
+    R.useLayoutEffect(() => {
+      if (compact || !greedy) return;
+      const panel = panelRef.current;
+      const scroller = panel && panel.querySelector("[data-edge-scroll],[data-uui-scroll]");
+      if (!scroller) return;
+      const most = Math.min(window.innerHeight * 0.85, 760);
+      // What the scroll holds, which its scrollHeight does not say when it
+      // is less than the scroll's own height: the lowest of its children
+      // (through `display: contents` wrappers), plus its bottom padding.
+      const top = scroller.getBoundingClientRect().top - scroller.scrollTop;
+      let bottom = top;
+      const lowest = (el) => {
+        for (const c of el.children) {
+          if (getComputedStyle(c).display === "contents") lowest(c);
+          else bottom = Math.max(bottom, c.getBoundingClientRect().bottom);
+        }
+      };
+      lowest(scroller);
+      const held = bottom - top + (parseFloat(getComputedStyle(scroller).paddingBottom) || 0);
+      const needed = panel.offsetHeight - scroller.clientHeight + held;
+      const next = Math.round(Math.max(240, Math.min(needed, most)));
+      if (fitted == null || Math.abs(next - fitted) > 1) setFitted(next);
+    });
     const [detent, setDetent] = R.useState(detents.includes("medium") ? "medium" : "large");
     const [dragY, setDragY] = R.useState(0);
     const drag = R.useRef({ active: false, y: 0, dragging: false });
     R.useEffect(() => { const id = requestAnimationFrame(() => setShown(true)); return () => cancelAnimationFrame(id); }, []);
     const dismiss = () => { setShown(false); setTimeout(() => sendEvent(n.dismiss, ""), 220); };
-    const heightFor = (d) => d === "medium" ? "50%" : "calc(100% - max(env(safe-area-inset-top, 0px), 24px))";
+    // The large detent reaches the status bar, as iOS 26's does.
+    const heightFor = (d) => d === "medium" ? "50%" : "calc(100% - max(env(safe-area-inset-top, 0px), 10px))";
     // The grabber and the sheet's own top edge take the drag; the content
     // scrolls as usual.
     const onDown = (e) => { if (!compact) return; drag.current = { active: true, y: e.clientY, dragging: false }; };
@@ -2409,27 +2865,37 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       if (dragY > h * 0.18 && !canDismiss) { setDragY(0); return; }
       setDragY(0);
     };
+    // iOS 26: at the medium detent the sheet floats, glass inset 8pt from
+    // the screen's edges with its corners rounded all round; at the large
+    // one it meets the edges, its top corners the screen's.
+    const floating = detent === "medium";
     const panelStyle = compact
       ? {
-          background: panelBg, borderTopLeftRadius: 16, borderTopRightRadius: 16,
-          width: "100%", boxSizing: "border-box", height: heightFor(detent),
+          background: floating ? (pageDark() ? "rgba(30,30,32,0.78)" : "rgba(247,247,249,0.78)") : panelBg,
+          ...(floating ? {
+            backdropFilter: "blur(30px) saturate(1.8)", WebkitBackdropFilter: "blur(30px) saturate(1.8)",
+            borderRadius: 42, marginBottom: 8, width: "calc(100% - 16px)",
+            "--uui-sheet-grouped-bg": "transparent",
+            "--uui-sheet-cell-bg": pageDark() ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+          } : { borderTopLeftRadius: 50, borderTopRightRadius: 50, width: "100%" }),
+          boxSizing: "border-box", height: heightFor(detent),
           overflow: "hidden", padding: greedy ? 0 : "8px 16px 16px",
           boxShadow: "0 -8px 32px rgba(0,0,0,0.25)",
           display: "flex", flexDirection: "column", alignItems: "stretch",
           transform: shown ? `translateY(${dragY}px)` : "translateY(100%)",
           transition: drag.current.dragging ? "none" : "transform 0.24s cubic-bezier(0.2,0.8,0.2,1)",
-          paddingBottom: greedy ? 0 : "calc(16px + var(--uui-safe-bottom, env(safe-area-inset-bottom, 0px)))",
+          paddingBottom: greedy || floating ? 0 : "calc(16px + var(--uui-safe-bottom, env(safe-area-inset-bottom, 0px)))",
         }
       : {
           background: panelBg, borderRadius: 14, boxSizing: "border-box",
           width: greedy ? "min(560px, calc(100% - 64px))" : "auto",
           minWidth: 280, maxWidth: "min(640px, calc(100% - 64px))",
-          height: greedy ? "min(85%, 760px)" : "auto", maxHeight: "calc(100% - 64px)",
+          // The Mac's: as tall as its content (a Form's rows too), up to most
+          // of the window, then it scrolls inside; centred on the window.
+          height: greedy ? (fitted != null ? fitted : "min(85%, 760px)") : "auto", maxHeight: "min(85%, 760px)",
           overflow: "hidden", padding: greedy ? 0 : 16, boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
           display: "flex", flexDirection: "column", alignItems: "stretch",
-          // Attached under the toolbar, dropping down as on macOS.
-          marginTop: 52,
-          transform: shown ? "translateY(0)" : "translateY(-24px)", opacity: shown ? 1 : 0,
+          transform: shown ? "scale(1)" : "scale(0.97)", opacity: shown ? 1 : 0,
           transition: "transform 0.2s cubic-bezier(0.2,0.8,0.2,1), opacity 0.18s ease-out",
         };
     return h("div", {
@@ -2438,17 +2904,19 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         // under the collapsed toolbar, and a sheet sized to it would keep
         // its last rows there.
         position: "fixed", inset: 0, height: "100dvh", display: "flex", zIndex: 20,
-        alignItems: compact ? "flex-end" : "flex-start", justifyContent: "center",
-        background: shown ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0)", transition: "background 0.22s",
+        alignItems: compact ? "flex-end" : "center", justifyContent: "center",
+        // The Mac dims its window a quarter behind a sheet; a phone more.
+        background: shown ? (compact ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.25)") : "rgba(0,0,0,0)", transition: "background 0.22s",
       },
       onClick: () => { if (canDismiss) dismiss(); },
     }, h("div", {
+      ref: panelRef,
       onClick: (e) => e.stopPropagation(),
       onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp,
       style: panelStyle,
     }, grabber ? h("div", { key: "grab", style: { alignSelf: "center", width: 36, height: 5, borderRadius: 3, background: "rgba(120,120,128,0.45)", margin: "6px 0 2px", flex: "none" } }) : null,
        // The body keeps the home indicator's inset below its last row.
-       h("div", { key: "body", className: "uui-sheet-body", style: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", alignItems: "stretch", overflowY: greedy ? "hidden" : "auto", "--uui-safe-top": "0px", ...(pageDark() ? { "--uui-sheet-grouped-bg": "#1c1c1e", "--uui-sheet-cell-bg": "#2c2c2e" } : {}), "--uui-inset-bottom": compact ? "var(--uui-safe-bottom, env(safe-area-inset-bottom, 0px))" : "0px" } }, kids)));
+       h("div", { key: "body", className: "uui-sheet-body", style: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", alignItems: "stretch", overflowY: greedy ? "hidden" : "auto", "--uui-safe-top": "0px", ...(pageDark() && !(compact && detent === "medium") ? { "--uui-sheet-grouped-bg": compact ? "#1c1c1e" : MAC_DARK_PAGE, "--uui-sheet-cell-bg": compact ? "#2c2c2e" : "#2b2b2d" } : {}), "--uui-inset-bottom": compact ? "var(--uui-safe-bottom, env(safe-area-inset-bottom, 0px))" : "0px" } }, kids)));
   }
 
   let renderDepth = 0;
@@ -2473,26 +2941,38 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         style: { height: rowHeights.get(n.key) || 60, flex: "0 0 auto", alignSelf: "stretch" },
       });
     }
-    const saved = [currentListStyle, currentListSeparators, currentListMinRowHeight, inSidebar, currentSplitBack, renderDepth];
+    const saved = [currentListStyle, currentListSeparators, currentListMinRowHeight, inSidebar, currentSplitBack, renderDepth, inListCell];
     currentListStyle = listStyle; currentListSeparators = separators; currentListMinRowHeight = minRow; inSidebar = sidebar;
-    currentSplitBack = splitBack; renderDepth = depth;
+    currentSplitBack = splitBack; renderDepth = depth; inListCell = !sidebar;
     try { return render(n, "cell", axis); }
-    finally { [currentListStyle, currentListSeparators, currentListMinRowHeight, inSidebar, currentSplitBack, renderDepth] = saved; }
+    finally { [currentListStyle, currentListSeparators, currentListMinRowHeight, inSidebar, currentSplitBack, renderDepth, inListCell] = saved; }
   }, (a, b) => a.n === b.n && a.axis === b.axis && a.listStyle === b.listStyle
     && a.separators === b.separators && a.minRow === b.minRow && a.sidebar === b.sidebar);
+
+  // Inside a List or Form row (not the sidebar's): at regular width a
+  // button of the automatic style there is the Mac's push button.
+  let inListCell = false;
 
   // The fixed frame (`.frame(width:height:)`) directly around the node being
   // rendered, if any: which of its dimensions are set.
   let sizedByFrame = null;
+  // Whether the node being rendered sits in a box or a VStack (whose width
+  // bounds it), not a horizontal stack, a scroll or a ZStack.
+  let widthCappedByParent = false;
   function render(n, key, parentAxis) {
     renderDepth += 1;
     const presented = n.k === "presentation";
     if (presented) presentationDepth += 1;
+    // A Form's row is a row as a List's is (`inListCell`).
+    const formRow = !!(n.params && n.params.form === "row");
+    const cellBefore = inListCell;
+    if (formRow) inListCell = true;
     try {
       return renderNode(n, key, parentAxis);
     } finally {
       renderDepth -= 1;
       if (presented) presentationDepth -= 1;
+      if (formRow) inListCell = cellBefore;
     }
   }
 
@@ -2556,8 +3036,19 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     // word (a resume command, an address) widens the whole row. SwiftUI
     // squeezes such a child and lets it truncate; a fixed frame keeps its
     // size through the minimum set with its width.
-    if (parentAxis === "h" && n.width == null) s.minWidth = 0;
+    // A wrapper round a fixed frame (a button whose label has a set size)
+    // keeps that size: SwiftUI's stack gives its rigid children their size
+    // first, where flexbox would shrink them with the rest.
+    if (parentAxis === "h" && n.width == null) {
+      if (n.k === "box" && fixedSize(n).w > 0) s.flexShrink = 0;
+      else s.minWidth = 0;
+    }
     if (parentAxis === "v" && n.height == null) s.minHeight = 0;
+    // A VStack or a modifier's box proposes its own width to its content,
+    // which is never wider unless it is fixed (a frame, `.fixedSize`): a
+    // column's child left at its content's width would run past it (a
+    // one-line command beside two buttons ran under them).
+    if (widthCappedByParent && n.width == null && s.maxWidth == null) s.maxWidth = "100%";
     // In a ZStack layer, greedy nodes fill the stack (e.g. a shape backdrop).
     if (parentAxis === "z") {
       if (n.growW) s.width = "100%";
@@ -2681,8 +3172,10 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         // `Rectangle().frame(height: 1)`): no minimum of the shape's own.
         const sizedBefore = sizedByFrame;
         sizedByFrame = n.k === "box" ? { w: n.width != null, h: n.height != null } : null;
+        const cappedBefore = widthCappedByParent;
+        widthCappedByParent = n.k === "box" || (n.k === "stack" && n.axis === "v");
         try { return render(c, childKey, childAxis); }
-        finally { sizedByFrame = sizedBefore; if (isSplit && i === 0) inSidebar--; }
+        finally { sizedByFrame = sizedBefore; widthCappedByParent = cappedBefore; if (isSplit && i === 0) inSidebar--; }
       });
     } finally {
       currentListStyle = previousListStyle;
@@ -2720,6 +3213,10 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             },
           }, kid)));
         }
+        // The desktop has the Mac's toolbar, not a bottom bar: a `.bottomBar`
+        // of buttons draws nothing here (its navigation stack's bar has
+        // them: liftedBarButtons).
+        if (isDesktop() && liftedBottomBar(n) && kids.length === 2) kids = [kids[0], h("div", { key: "lifted" })];
         if ((n.params || {}).inset && kids.length === 2) {
           return h(InsetStack, { key, n, style: s, kids, edge: n.params.inset, hasEdgeScroll: ownsEdgeScroll, fixed: docScroll() && ownsEdgeScroll });
         }
@@ -2773,8 +3270,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         return h("div", props, kids);
       }
       case "text": {
-        s.fontSize = n.size;
-        s.fontWeight = n.weight;
+        s.fontSize = textSize(n);
+        s.fontWeight = textWeight(n);
         s.color = rgba(n.color);
         s.whiteSpace = "pre-wrap";
         // Text with nowhere to break (a URL, a path) breaks where the line
@@ -2785,7 +3282,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         // the middle of a word to make room.
         if (/\S{20,}/.test(n.v || "")) s.overflowWrap = "anywhere";
         else { s.overflowWrap = "break-word"; s.minWidth = "min-content"; }
-        s.fontFamily = (n.params && n.params.mono === "1") ? MONO_FONT : SYSTEM_FONT;
+        s.fontFamily = fontFamilyCSS(n.params);
         // `.multilineTextAlignment` reaches the text itself.
         if (n.alignH === "center") s.textAlign = "center";
         else if (n.alignH === "trailing") s.textAlign = "right";
@@ -2807,7 +3304,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           s.overflow = "hidden";
         }
         if ((n.params || {}).symbol) {
-          const svg = symbolSVG(h, n.params.symbol, n.size, s.color, n.weight, undefined, n.params.symbol2);
+          const svg = symbolSVG(h, n.params.symbol, s.fontSize, s.color, n.weight, undefined, n.params.symbol2);
           if (svg) {
             s.display = "inline-flex"; s.alignItems = "center"; s.justifyContent = "center"; s.lineHeight = 1;
             return h("span", props, svg);
@@ -2847,6 +3344,11 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           s.minWidth = 0;
           s.overflowY = "auto";
         }
+        // `.scrollIndicators(.hidden)`.
+        if ((n.params || {}).indicators === "hidden") {
+          s.scrollbarWidth = "none";
+          props.className = ((props.className || "") + " uui-no-scrollbar").trim();
+        }
         // `.scrollDisabled(true)`: laid out the same, not scrollable.
         const scrollDisabled = (n.params || {}).scrollDisabled === "1";
         if (scrollDisabled) {
@@ -2881,7 +3383,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           const dark = pageDark();
           // In a sheet the grouped ground and cells take the sheet's own
           // (elevated) colours, as iOS raises a sheet's grouped list.
-          s.background = `var(--uui-sheet-grouped-bg, ${GROUPED_BACKGROUND(dark)})`;
+          // (`.scrollContentBackground(.hidden)`: what is behind shows.)
+          s.background = (n.params || {}).contentBg === "hidden" ? "transparent" : `var(--uui-sheet-grouped-bg, ${GROUPED_BACKGROUND(dark)})`;
           s["--uui-cell-bg"] = `var(--uui-sheet-cell-bg, ${CELL_BACKGROUND(dark)})`;
           s["--uui-separator"] = SEPARATOR(dark);
           kids = h("div", { key: "grouped", className: "uui-ig" }, kids);
@@ -3012,7 +3515,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         }
         if (n.shape === "circle") s.borderRadius = "50%";
         if (n.shape === "capsule") s.borderRadius = 9999;
-        if (n.fill) s.background = rgba(n.fill);
+        if (n.fill) s.background = fillCSS(n);
         if (n.stroke) s.border = `${n.strokeWidth || 1}px solid ${rgba(n.stroke)}`;
         if (n.width == null && !n.expandW && !(sizedByFrame && sizedByFrame.w)) s.minWidth = 10;
         if (n.height == null && !n.expandH && !(sizedByFrame && sizedByFrame.h)) s.minHeight = 10;
@@ -3146,7 +3649,15 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           // the way a collection view only lays out what is visible.
           s.contentVisibility = "auto";
           s.containIntrinsicSize = "auto 44px";
-          if (currentListStyle === "sidebar") {
+          // A row with a view behind it (`.listRowBackground(view)`) draws
+          // its own ground and selection: the list paints neither.
+          const ownBg = (n.params || {}).rowOwnBg === "1";
+          if (currentListStyle === "sidebar" && ownBg) {
+            // The sidebar's width, its padding the app's (the sides it left
+            // to the list the Mac's).
+            s.padding = rowPadding(n.params, [5, 10, 5, 10]); s.minHeight = 28; s.width = "100%";
+            s.boxSizing = "border-box"; s.justifyContent = "center"; s.fontSize = 13;
+          } else if (currentListStyle === "sidebar") {
             // macOS sidebar rows: compact, no separators, a rounded accent
             // selection with a white label.
             s.padding = "5px 10px"; s.minHeight = 28; s.margin = "1px 10px"; s.borderRadius = 6; s.width = "calc(100% - 20px)"; s.alignSelf = "flex-start";
@@ -3157,28 +3668,36 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             // The platform's row metrics, unless the app set its own:
             // `.listRowInsets` on the row ("top,leading,bottom,trailing"),
             // `\.defaultMinListRowHeight` on the list.
-            const insets = ((n.params || {}).rowInsets || "").split(",").map(Number);
-            s.padding = insets.length === 4 && insets.every(isFinite)
-              ? `${insets[0]}px ${insets[3]}px ${insets[2]}px ${insets[1]}px` : "11px 16px";
-            s.minHeight = currentListMinRowHeight != null ? currentListMinRowHeight : 44;
+            const rowInsets = rowInsetValues(n.params, currentListStyle === "insetGrouped" ? [13, 16, 13, 16] : [11, 16, 11, 16]);
+            s.padding = `${rowInsets[0]}px ${rowInsets[3]}px ${rowInsets[2]}px ${rowInsets[1]}px`;
+            // The separator runs under the content, from its leading inset
+            // to its trailing one, as iOS draws it.
+            s["--uui-sep-l"] = `${rowInsets[1]}px`;
+            s["--uui-sep-r"] = `${rowInsets[3]}px`;
+            // iOS 26's inset-grouped rows are 52pt at the least.
+            s.minHeight = currentListMinRowHeight != null ? currentListMinRowHeight : currentListStyle === "insetGrouped" ? 52 : 44;
             s.boxSizing = "border-box";
             s.justifyContent = "center";
             if (currentListStyle === "insetGrouped") {
               props.className = ((props.className || "") + " uui-ig-row" + (separators ? "" : " uui-no-sep")).trim();
-              if (selected) s.background = "rgba(10,132,255,0.18)";
+              if (selected && !ownBg) s.background = "rgba(10,132,255,0.18)";
             } else if (currentListStyle === "plain") {
               // Messages' inbox: the row on the page, a hairline from the
               // text column, a gray highlight for the selected row.
               props.className = ((props.className || "") + " uui-plain-row" + (separators ? "" : " uui-no-sep")).trim();
-              if (selected) s.background = "rgba(120,120,128,0.22)";
+              if (selected && !ownBg) s.background = "rgba(120,120,128,0.22)";
             } else {
               if (separators) s.borderBottom = "1px solid rgba(120,120,128,0.2)";
-              if (selected) s.background = "rgba(10,132,255,0.18)";
+              if (selected && !ownBg) s.background = "rgba(10,132,255,0.18)";
             }
           }
         }
         if ((n.params || {}).cell === "header") {
-          if (currentListStyle === "insetGrouped") props.className = ((props.className || "") + " uui-ig-header").trim();
+          if (currentListStyle === "insetGrouped") {
+            // A header-less section's header is only the gap before it.
+            const empty = !(n.ch || []).some((c) => c.k !== "box" || (c.ch || []).length);
+            props.className = ((props.className || "") + " uui-ig-header" + (empty ? " uui-ig-gap" : "")).trim();
+          }
           else if (currentListStyle === "sidebar") props.className = ((props.className || "") + " uui-sb-header").trim();
         }
         // A GeometryReader wrapper: measure the box the host actually laid
