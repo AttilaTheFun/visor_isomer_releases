@@ -4,11 +4,11 @@
 // the runtime. Strings and structs copy at the boundary, so there is no
 // pointer/length or staging-buffer plumbing here.
 
-import { importedFilesWasi } from "./imported_files.js?v=2772602950";
-import { load } from "../app_bridge.js?v=2772602950";
-import { createRasterHost, registerImageBytes } from "./raster.js?v=2772602950";
-import { createReactTreeRenderer } from "./react_renderer.js?v=2772602950";
-import { applyPatch } from "./flat_tree.js?v=2772602950";
+import { importedFilesWasi } from "./imported_files.js?v=1597642287";
+import { load } from "../app_bridge.js?v=1597642287";
+import { createRasterHost, registerImageBytes } from "./raster.js?v=1597642287";
+import { createReactTreeRenderer } from "./react_renderer.js?v=1597642287";
+import { applyPatch } from "./flat_tree.js?v=1597642287";
 
 // `rendererName` picks the renderer (docs/renderer_layers.md): "webGPU"
 // (default) binds the self-drawing SwiftGPURenderer; "react" binds the
@@ -47,17 +47,17 @@ export async function boot({
   documentScroll = new URLSearchParams(location.search).get("scroll") === "document",
 } = {}) {
   const react = rendererName === "react";
-  // SwiftGPURenderer: Swift draws through swift_gpu's executor; this page
-  // supplies measurement + rasterization.
+  // SwiftGPURenderer: Swift draws through Isomer's Metal, whose executor
+  // runs it on WebGPU; this page supplies measurement + rasterization.
   let gpuHost = null;
   let raster = null;
   if (!react) {
     // Imported lazily: the ReactRenderer path never touches WebGPU, and a
-    // static import would put swift_gpu's executor on EVERY page's critical
+    // static import would put the Metal executor on EVERY page's critical
     // module graph (an unresolved ES module import evaluates NOTHING —
     // rendering as a silent blank page when the file isn't served).
-    const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=2772602950");
-    gpuHost = await createSwiftGPUHost(canvas);
+    const { createIsomerMetalHost } = await import("./isomer_metal_webgpu.js?v=1597642287");
+    gpuHost = await createIsomerMetalHost(canvas);
     raster = createRasterHost({
       scale: window.devicePixelRatio || 1,
       invalidate: () => scheduleRender(),
@@ -70,6 +70,22 @@ export async function boot({
   let retainedTree = null;
   let treeContainer = null;
   let mapSurface = null;
+  let metalViews = null;
+  // The page's one Metal executor (surface 1 is the page canvas, which the
+  // GPU renderer or a React-path map draws into), made on first use and
+  // connected to the app.
+  let metalHostStarting = null;
+  async function ensureMetalHost() {
+    if (gpuHost) return gpuHost;
+    metalHostStarting ??= (async () => {
+      const { createIsomerMetalHost } = await import("./isomer_metal_webgpu.js?v=1597642287");
+      gpuHost = await createIsomerMetalHost(canvas);
+      gpuHost.connect(bridge);
+      bridge.isoSetDisplayScale(window.devicePixelRatio || 1);
+      return gpuHost;
+    })();
+    return metalHostStarting;
+  }
   if (react) {
     // React owns the surface: mount a root container where the canvas was.
     treeContainer = document.createElement("div");
@@ -124,25 +140,25 @@ export async function boot({
         const next = documentScroll && window.innerWidth < 700;
         if (next === inDocument) return;
         inDocument = next;
-        document.documentElement.classList.toggle("uui-document", next);
+        document.documentElement.classList.toggle("iso-document", next);
         if (next) {
           // The surface runs on as tall as its content (the page scrolls,
           // not the surface); its chrome is fixed or sticky, so the browser
           // itself keeps a focused field above the keyboard.
           treeContainer.style.cssText = "position:absolute;left:0;right:0;top:0;overflow:visible;display:flex;flex-direction:column;min-height:100%";
-          treeContainer.dataset.uuiDocument = "1";
+          treeContainer.dataset.isoDocument = "1";
         } else {
           treeContainer.style.cssText = surface;
           treeContainer.style.transition = "height 0.25s ease-out, top 0.25s ease-out";
           treeContainer.style.boxSizing = "border-box";
-          delete treeContainer.dataset.uuiDocument;
+          delete treeContainer.dataset.isoDocument;
         }
         fit();
       };
       const fit = () => {
         if (inDocument) {
           // Only the home indicator's inset, dropped while a field is focused.
-          treeContainer.style.setProperty("--uui-safe-bottom", editing() ? "0px" : "env(safe-area-inset-bottom, 0px)");
+          treeContainer.style.setProperty("--iso-safe-bottom", editing() ? "0px" : "env(safe-area-inset-bottom, 0px)");
           return;
         }
         if (!editing()) restHeight = pageHeight();
@@ -154,8 +170,8 @@ export async function boot({
         treeContainer.style.height = `${full + lift}px`;
         treeContainer.style.bottom = "auto";
         treeContainer.style.paddingBottom = `${lift}px`;
-        treeContainer.style.setProperty("--uui-keyboard", `${lift}px`);
-        treeContainer.style.setProperty("--uui-safe-bottom", keyboardUp ? "0px" : "env(safe-area-inset-bottom, 0px)");
+        treeContainer.style.setProperty("--iso-keyboard", `${lift}px`);
+        treeContainer.style.setProperty("--iso-safe-bottom", keyboardUp ? "0px" : "env(safe-area-inset-bottom, 0px)");
         if (window.scrollY) window.scrollTo(0, 0);
       };
       viewport.addEventListener("resize", fit);
@@ -218,10 +234,7 @@ export async function boot({
               invalidate: () => scheduleRender(),
             });
           }
-          const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=2772602950");
-          gpuHost = await createSwiftGPUHost(canvas);
-          bridge.gpuConnect(gpuHost);
-          bridge.uuiSetDisplayScale(window.devicePixelRatio || 1);
+          await ensureMetalHost();
           this.draw();
         } catch (err) {
           // No WebGPU (older browser): leave a legible pane instead of a
@@ -251,21 +264,73 @@ export async function boot({
         if (canvas.width !== w) canvas.width = w;
         if (canvas.height !== h) canvas.height = h;
         const p = this.node.params || {};
-        bridge.uuiMapSurfaceRender(
+        bridge.isoMapSurfaceRender(
           this.node.edit || "map", this.node.v || "",
           p.annotations || "", p.polygons || "", p.polylines || "",
           rect.width, rect.height);
       },
     };
+    // React-path `MetalView`s: each a canvas of its own, a surface of the
+    // page's Metal executor, asked for a frame every animation frame while
+    // mounted (`isoMetalViewFrame`), as an MTKView draws by default.
+    metalViews = {
+      views: new Map(),
+      attach(el, token, send) {
+        const existing = this.views.get(token);
+        if (el) {
+          if (existing) {
+            clearTimeout(existing.detachTimer);
+            if (existing.el === el) return;
+            existing.el = el;
+            existing.surface = 0;
+            return;
+          }
+          const view = { el, token, send, surface: 0, frame: 0, detachTimer: 0 };
+          this.views.set(token, view);
+          this.start(view);
+        } else if (existing) {
+          // React re-runs ref callbacks (null, then the element) on every
+          // render: only a real unmount lets the view go.
+          existing.detachTimer = setTimeout(() => {
+            cancelAnimationFrame(existing.frame);
+            if (existing.surface) gpuHost?.removeSurface(existing.surface);
+            this.views.delete(token);
+            existing.send("gone");
+          }, 0);
+        }
+      },
+      async start(view) {
+        try {
+          await ensureMetalHost();
+        } catch (err) {
+          console.warn("[metal] WebGPU unavailable — MetalView not drawn:", err);
+          return;
+        }
+        const tick = () => {
+          if (!this.views.has(view.token)) return;
+          const scale = window.devicePixelRatio || 1;
+          const rect = view.el.getBoundingClientRect();
+          const w = Math.max(1, Math.round(rect.width * scale));
+          const h = Math.max(1, Math.round(rect.height * scale));
+          if (view.el.width !== w) view.el.width = w;
+          if (view.el.height !== h) view.el.height = h;
+          if (!view.surface) view.surface = gpuHost.addSurface(view.el);
+          bridge.isoMetalViewFrame(view.token, view.surface);
+          view.frame = requestAnimationFrame(tick);
+        };
+        view.frame = requestAnimationFrame(tick);
+      },
+    };
     reactTree = createReactTreeRenderer({
       container: treeContainer,
       sendEvent: hostEvent,
-      sendKey: (id, value) => bridge.uuiKeyEvent(id, value),
+      sendKey: (id, value) => bridge.isoKeyEvent(id, value),
       mapSurface,
+      metalViews,
       documentScroll,
     });
-    // Event injection for headless smoke tests (cf. __uuiHostViews).
-    window.__uuiSendEvent = (id, value) => bridge.uuiHostEvent(id, value);
+    // Event injection for headless smoke tests (cf. __isoHostViews).
+    window.__isoSendEvent = (id, value) => bridge.isoHostEvent(id, value);
   }
 
   let renderFrame = 0;
@@ -273,7 +338,7 @@ export async function boot({
     if (renderFrame) return;
     renderFrame = requestAnimationFrame(() => {
       renderFrame = 0;
-      bridge.uuiRender();
+      bridge.isoRender();
     });
   }
 
@@ -284,13 +349,13 @@ export async function boot({
   let renderingInGesture = false;
   const GESTURES = new Set(["click", "pointerup", "touchend", "keydown", "keyup"]);
   function hostEvent(id, value) {
-    bridge.uuiHostEvent(id, value);
+    bridge.isoHostEvent(id, value);
     const event = window.event;
     if (!renderFrame || !event || !event.isTrusted || !GESTURES.has(event.type)) return;
     cancelAnimationFrame(renderFrame);
     renderFrame = 0;
     renderingInGesture = true;
-    try { bridge.uuiRender(); } finally { renderingInGesture = false; }
+    try { bridge.isoRender(); } finally { renderingInGesture = false; }
   }
 
 
@@ -306,7 +371,7 @@ export async function boot({
     "z-index:10",
   ].join(";");
   document.body.appendChild(textOverlay);
-  window.__uuiTextOverlay = textOverlay; // used by headless smoke tests
+  window.__isoTextOverlay = textOverlay; // used by headless smoke tests
 
   let hidingTextOverlay = false;
   function hideTextOverlay() {
@@ -315,16 +380,16 @@ export async function boot({
     textOverlay.blur();
     hidingTextOverlay = false;
   }
-  textOverlay.addEventListener("input", () => bridge.uuiTextChanged(textOverlay.value));
+  textOverlay.addEventListener("input", () => bridge.isoTextChanged(textOverlay.value));
   textOverlay.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
-      bridge.uuiTextSubmitted();
+      bridge.isoTextSubmitted();
     }
   });
   textOverlay.addEventListener("blur", () => {
     if (!hidingTextOverlay && textOverlay.style.display !== "none") {
       textOverlay.style.display = "none";
-      bridge.uuiTextEnded();
+      bridge.isoTextEnded();
     }
   });
 
@@ -336,7 +401,7 @@ export async function boot({
   const hostViews = new Map(); // id -> { el, kind }
   let darkMode = false;
   function sendHostEvent(id, value) {
-    bridge.uuiHostEvent(id, value);
+    bridge.isoHostEvent(id, value);
   }
   function makeHostView(spec) {
     let el;
@@ -386,7 +451,7 @@ export async function boot({
       }
     }
   }
-  window.__uuiHostViews = hostViews; // for headless smoke tests
+  window.__isoHostViews = hostViews; // for headless smoke tests
 
   // The Swift `WebHost` protocol, implemented as a plain object. Strings and
   // structs are real values; Swift retains this object through its foreign
@@ -476,7 +541,7 @@ export async function boot({
       if (key === "windowTitle") document.title = value;
       // A page hook for app-specific commands (`platformCommand("splash",
       // "demo:2048", on: .wasm)` → the page runs the demo).
-      if (typeof window.uuiPlatformCommand === "function") window.uuiPlatformCommand(key, value);
+      if (typeof window.isoPlatformCommand === "function") window.isoPlatformCommand(key, value);
     },
     epochMillis() { return Date.now(); },
     registerImage(source, bytes) { registerImageBytes(source, bytes); },
@@ -485,7 +550,7 @@ export async function boot({
       // arrival order to the retained plain-object tree the React interpreter
       // walks (the first patch after start is a full-tree op at "n").
       retainedTree = applyPatch(retainedTree, tree);
-      window.__uuiLastTree = JSON.stringify(retainedTree); // for headless smoke tests
+      window.__isoLastTree = JSON.stringify(retainedTree); // for headless smoke tests
       reactTree.render(retainedTree, renderingInGesture);
       // A mounted map redraws with every tree frame (camera moves arrive as
       // new frames; tile completions schedule one through the image drain).
@@ -506,10 +571,10 @@ export async function boot({
   });
   bridge = await load(module, { dependencies, wasi: wasiWithFiles });
   if (gpuHost) {
-    bridge.gpuConnect(gpuHost); // swift_gpu's WebGPU executor
+    gpuHost.connect(bridge); // Isomer's Metal executor (WebGPU)
   }
   // Device pixels per point: the GPU renderer's clips, and `\.displayScale`.
-  bridge.uuiSetDisplayScale(window.devicePixelRatio || 1);
+  bridge.isoSetDisplayScale(window.devicePixelRatio || 1);
 
   const scale = window.devicePixelRatio || 1;
   function resizeBacking() {
@@ -522,33 +587,33 @@ export async function boot({
   // System appearance: report `prefers-color-scheme` BEFORE the first frame,
   // so a dark-mode user never sees a light flash.
   const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
-  bridge.uuiSetColorScheme(darkQuery.matches);
+  bridge.isoSetColorScheme(darkQuery.matches);
   // Runs the app's @main (installing the App) and starts the runtime with
   // this host object under the chosen renderer binding.
   // Size from the mount surface (an embedded container or the full page).
-  bridge.uuiStart(
+  bridge.isoStart(
     host, rendererName,
     canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight);
 
   // Scene lifecycle: page visibility maps to `@Environment(\.scenePhase)`.
   document.addEventListener("visibilitychange", () => {
-    bridge.uuiSetScenePhase(document.hidden ? "background" : "active");
+    bridge.isoSetScenePhase(document.hidden ? "background" : "active");
   });
   // System appearance changes: live on every OS/browser toggle (the initial
-  // value was reported before uuiStart above).
+  // value was reported before isoStart above).
   darkQuery.addEventListener("change", (event) => {
-    bridge.uuiSetColorScheme(event.matches);
+    bridge.isoSetColorScheme(event.matches);
   });
   // `.onOpenURL`: the launch URL, plus any the host page dispatches later via
-  // `window.dispatchEvent(new CustomEvent("uui:openurl", { detail: url }))`.
-  bridge.uuiOpenURL(window.location.href);
-  window.addEventListener("uui:openurl", (event) => {
-    if (event.detail) bridge.uuiOpenURL(String(event.detail));
+  // `window.dispatchEvent(new CustomEvent("iso:openurl", { detail: url }))`.
+  bridge.isoOpenURL(window.location.href);
+  window.addEventListener("iso:openurl", (event) => {
+    if (event.detail) bridge.isoOpenURL(String(event.detail));
   });
 
   if (react) {
     window.addEventListener("resize", () => {
-      bridge.uuiResize(window.innerWidth, window.innerHeight);
+      bridge.isoResize(window.innerWidth, window.innerHeight);
     });
     return { bridge, container: treeContainer };
   }
@@ -560,21 +625,21 @@ export async function boot({
   canvas.addEventListener("pointerdown", (event) => {
     // Synthetic events (tests) carry pointer ids the browser doesn't own.
     try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
-    bridge.uuiPointerEvent(0, ...localPoint(event));
+    bridge.isoPointerEvent(0, ...localPoint(event));
   });
   canvas.addEventListener("pointermove", (event) => {
-    bridge.uuiPointerEvent(2, ...localPoint(event));
+    bridge.isoPointerEvent(2, ...localPoint(event));
   });
   canvas.addEventListener("pointerup", (event) => {
-    bridge.uuiPointerEvent(1, ...localPoint(event));
+    bridge.isoPointerEvent(1, ...localPoint(event));
   });
   canvas.addEventListener("wheel", (event) => {
     event.preventDefault();
-    bridge.uuiWheelEvent(...localPoint(event), event.deltaX, event.deltaY);
+    bridge.isoWheelEvent(...localPoint(event), event.deltaX, event.deltaY);
   }, { passive: false });
   window.addEventListener("resize", () => {
     resizeBacking();
-    bridge.uuiResize(canvas.clientWidth, canvas.clientHeight);
+    bridge.isoResize(canvas.clientWidth, canvas.clientHeight);
   });
 
   return { bridge };
@@ -598,7 +663,7 @@ export async function mountIsomer(container, { wasmURL, bundle, renderer = "webG
   container.appendChild(canvas);
 
   const result = await boot({
-    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=2772602950"),
+    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=1597642287"),
     bundle, rendererName: renderer, embedded: true, dependencies, wasi,
   });
 
@@ -607,7 +672,7 @@ export async function mountIsomer(container, { wasmURL, bundle, renderer = "webG
     const observer = new ResizeObserver(() => {
       canvas.width = Math.max(1, Math.round(canvas.clientWidth * scale));
       canvas.height = Math.max(1, Math.round(canvas.clientHeight * scale));
-      result.bridge.uuiResize(canvas.clientWidth, canvas.clientHeight);
+      result.bridge.isoResize(canvas.clientWidth, canvas.clientHeight);
     });
     observer.observe(container);
     result.disconnect = () => observer.disconnect();

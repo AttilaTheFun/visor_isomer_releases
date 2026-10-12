@@ -1,26 +1,26 @@
-// A generic browser host for `uui_hot` feature bundles — the web peer of the
+// A generic browser host for `iso_hot` feature bundles — the web peer of the
 // native WasmView. Where boot.js drives an app reactor through its GENERATED
-// swift_ffi bindings (app_bridge.js), this host speaks the fixed `uui_hot`
+// swift_ffi bindings (app_bridge.js), this host speaks the fixed `iso_hot`
 // render ABI directly, so it can run ANY feature bundle — including one
 // compiled outside bazel (the Playground app's on-the-fly user builds) —
 // with no generated code. The reactor pushes tree.fbs Patches; the React
 // renderer mounts them as real DOM.
 //
 // ABI (mirrors HotBridge.swift):
-//   imports (this host provides, module "uui_hot"):
+//   imports (this host provides, module "iso_hot"):
 //     render_tree(ptr, len)  log(ptr, len)  epoch_millis()  schedule_render()
 //     platform_command(key, value)  host_value(key, out, capacity) -> length
 //   exports (this host calls):
-//     _initialize, uui_hot_start(w, h), uui_hot_render(), uui_hot_resize(w, h),
-//     uui_hot_set_color_scheme(dark), uui_hot_alloc/free, uui_hot_event(...)
+//     _initialize, iso_hot_start(w, h), iso_hot_render(), iso_hot_resize(w, h),
+//     iso_hot_set_color_scheme(dark), iso_hot_alloc/free, iso_hot_event(...)
 //
 // The six fixed `swift_ffi` transport imports are bound as inert stubs
 // (dependency lookups answer "absent"); a v3 reactor that never touches
 // `dependencies[...]` runs exactly as it does under a host without DI.
 
-import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=2772602950";
-import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=2772602950";
-import { applyPatch } from "./runtime/flat_tree.js?v=2772602950";
+import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=1597642287";
+import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=1597642287";
+import { applyPatch } from "./runtime/flat_tree.js?v=1597642287";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -39,13 +39,13 @@ export async function runHotBundle({ wasm, container, dependencies = {}, onLog =
     if (!exports) return;
     const idBytes = encoder.encode(id);
     const valueBytes = encoder.encode(value);
-    const idPtr = exports.uui_hot_alloc(idBytes.length);
+    const idPtr = exports.iso_hot_alloc(idBytes.length);
     new Uint8Array(memory.buffer, idPtr, idBytes.length).set(idBytes);
-    const valuePtr = exports.uui_hot_alloc(valueBytes.length);
+    const valuePtr = exports.iso_hot_alloc(valueBytes.length);
     new Uint8Array(memory.buffer, valuePtr, valueBytes.length).set(valueBytes);
-    exports.uui_hot_event(idPtr, idBytes.length, valuePtr, valueBytes.length);
-    exports.uui_hot_free(idPtr);
-    exports.uui_hot_free(valuePtr);
+    exports.iso_hot_event(idPtr, idBytes.length, valuePtr, valueBytes.length);
+    exports.iso_hot_free(idPtr);
+    exports.iso_hot_free(valuePtr);
     scheduleRender();
   }
 
@@ -65,7 +65,7 @@ export async function runHotBundle({ wasm, container, dependencies = {}, onLog =
   };
 
   const renderer = createReactTreeRenderer({ container, sendEvent });
-  window.__uuiSendEvent = sendEvent; // headless smoke-test hook
+  window.__isoSendEvent = sendEvent; // headless smoke-test hook
 
   let renderQueued = false;
   function scheduleRender() {
@@ -73,21 +73,21 @@ export async function runHotBundle({ wasm, container, dependencies = {}, onLog =
     renderQueued = true;
     requestAnimationFrame(() => {
       renderQueued = false;
-      if (exports) exports.uui_hot_render();
+      if (exports) exports.iso_hot_render();
     });
   }
 
   const imports = {
-    uui_hot: {
+    iso_hot: {
       render_tree(ptr, len) {
         const bytes = new Uint8Array(memory.buffer, ptr, len).slice();
         retainedTree = applyPatch(retainedTree, bytes);
-        window.__uuiLastTree = JSON.stringify(retainedTree); // smoke-test hook
+        window.__isoLastTree = JSON.stringify(retainedTree); // smoke-test hook
         renderer.render(retainedTree);
       },
       log(ptr, len) {
         const line = guestString(ptr, len);
-        console.log("[uui-hot]", line);
+        console.log("[iso-hot]", line);
         if (onLog) onLog(line);
       },
       epoch_millis() {
@@ -181,7 +181,7 @@ export async function runHotBundle({ wasm, container, dependencies = {}, onLog =
   function applyColorScheme(dark) {
     document.documentElement.style.colorScheme = dark ? "dark" : "light";
     document.body.style.background = dark ? "rgb(18, 18, 20)" : "#ffffff";
-    exports.uui_hot_set_color_scheme(dark ? 1 : 0);
+    exports.iso_hot_set_color_scheme(dark ? 1 : 0);
   }
   applyColorScheme(darkQuery.matches);
   darkQuery.addEventListener("change", (event) => {
@@ -189,13 +189,13 @@ export async function runHotBundle({ wasm, container, dependencies = {}, onLog =
     scheduleRender();
   });
 
-  exports.uui_hot_start(
+  exports.iso_hot_start(
     container.clientWidth || window.innerWidth,
     container.clientHeight || window.innerHeight);
-  exports.uui_hot_render();
+  exports.iso_hot_render();
 
   const onResize = () => {
-    exports.uui_hot_resize(
+    exports.iso_hot_resize(
       container.clientWidth || window.innerWidth,
       container.clientHeight || window.innerHeight);
     scheduleRender();
@@ -203,7 +203,7 @@ export async function runHotBundle({ wasm, container, dependencies = {}, onLog =
   window.addEventListener("resize", onResize);
 
   return {
-    resize: (w, h) => exports.uui_hot_resize(w, h),
+    resize: (w, h) => exports.iso_hot_resize(w, h),
     /** The retained plain-object tree (kinds, text, params, tap/edit/drag
      *  ids) — what a driver reads; `send` fires an event on a node id the
      *  way the renderer does (tap: "", edit: text, drag: "changed:x,y"). */

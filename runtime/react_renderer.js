@@ -1,5 +1,5 @@
 // The web half of the ReactRenderer (the component-system renderer
-// bound by uuiStart when the page asks for "react").
+// bound by isoStart when the page asks for "react").
 //
 // Interprets the runtime's serialized view tree (docs/renderer_layers.md) as
 // React elements built from web-native components: flex layout, real inputs
@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=2772602950";
-import { SYMBOLS } from "./symbols.js?v=2772602950";
-import { storeFiles } from "./imported_files.js?v=2772602950";
+import { resolveImageSource } from "./raster.js?v=1597642287";
+import { SYMBOLS } from "./symbols.js?v=1597642287";
+import { storeFiles } from "./imported_files.js?v=1597642287";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -57,10 +57,10 @@ function symbolSVG(h, name, size, color, weight, extraStyle, secondary) {
     style: { display: "inline-block", verticalAlign: "-0.2em", color, flexShrink: 0, ...extraStyle },
   }, h("path", { key: "d", d: entry.d }),
      // A filled badge's glyph, in the colour the fill contrasts with.
-     entry.inner ? h("path", { key: "i", d: entry.inner, fill: "none", stroke: secondary ? "currentColor" : "var(--uui-symbol-contrast, #fff)", strokeWidth: 2.2 }) : null);
+     entry.inner ? h("path", { key: "i", d: entry.inner, fill: "none", stroke: secondary ? "currentColor" : "var(--iso-symbol-contrast, #fff)", strokeWidth: 2.2 }) : null);
 }
 
-export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, value) => { sendEvent(id, value); return false; }, assetBase = "assets/", mapSurface = null, documentScroll = false }) {
+export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, value) => { sendEvent(id, value); return false; }, assetBase = "assets/", mapSurface = null, metalViews = null, documentScroll = false }) {
   const R = window.React;
   const SYSTEM_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
   const MONO_FONT = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
@@ -69,8 +69,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
 
   // `.keyboardShortcut`: a key press finds the view marked with it on the
   // page now and presses the button in it (⌘ is Ctrl off the Mac).
-  if (!window.__uuiShortcuts) {
-    window.__uuiShortcuts = true;
+  if (!window.__isoShortcuts) {
+    window.__isoShortcuts = true;
     const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
     document.addEventListener("keydown", (e) => {
       const names = { Enter: "enter", Escape: "escape", Tab: "tab", " ": "space", Backspace: "backspace",
@@ -91,136 +91,142 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     }, true);
   }
 
-  if (!document.getElementById("uui-react-style")) {
+  if (!document.getElementById("iso-react-style")) {
     const style = document.createElement("style");
-    style.id = "uui-react-style";
+    style.id = "iso-react-style";
     style.textContent =
-      "@keyframes uui-spin{to{transform:rotate(1turn)}}" +
+      "@keyframes iso-spin{to{transform:rotate(1turn)}}" +
       // The spinner in the text's own colour, as iOS draws it in the
       // secondary label's: a faint track and a stronger head, so it reads on
       // a dark page and turns white on a selected row (a fixed mid-grey was
       // all but invisible on both). The fixed grey stays for browsers without
       // color-mix.
-      ".uui-spinner{width:22px;height:22px;border-radius:50%;flex:none;" +
+      ".iso-spinner{width:22px;height:22px;border-radius:50%;flex:none;" +
       "border:2.5px solid rgba(120,120,128,0.3);border-top-color:rgba(120,120,128,0.9);" +
       "border-color:color-mix(in srgb,currentColor 22%,transparent);" +
       "border-top-color:color-mix(in srgb,currentColor 85%,transparent);" +
-      "animation:uui-spin 0.8s linear infinite}" +
+      "animation:iso-spin 0.8s linear infinite}" +
       // A chat's rows (a bottom-anchored list) are laid out for real, off
       // screen too: sized by the 44pt estimate, a thread opening at its end
       // pinned against the estimates, then its last rows took their real
       // heights and the text under the reader moved.
-      ".uui-anchor-bottom [data-uui-cell]{content-visibility:visible !important}" +
-      ".uui-tap{transition:background-color 0.12s}" +
-      ".uui-bar-item:hover{background:rgba(120,120,128,0.16) !important}" +
-      ".uui-bar-item:active{background:rgba(120,120,128,0.26) !important}" +
-      ".uui-tap:active{background-color:rgba(120,120,128,0.18) !important}" +
-      ".uui-switch{appearance:none;-webkit-appearance:none;width:44px;height:26px;flex:none;" +
+      ".iso-anchor-bottom [data-iso-cell]{content-visibility:visible !important}" +
+      ".iso-tap{transition:background-color 0.12s}" +
+      // An upper ZStack layer passes the pointer through its empty space
+      // (stacks, spacers, frames), as SwiftUI hit-tests only content: what
+      // can be hit inside it (data-hit) takes it back, unless something
+      // above it has `.allowsHitTesting(false)`.
+      ".iso-pass [data-hit]{pointer-events:auto}" +
+      ".iso-pass [data-nohit],.iso-pass [data-nohit] *{pointer-events:none}" +
+      ".iso-bar-item:hover{background:rgba(120,120,128,0.16) !important}" +
+      ".iso-bar-item:active{background:rgba(120,120,128,0.26) !important}" +
+      ".iso-tap:active{background-color:rgba(120,120,128,0.18) !important}" +
+      ".iso-switch{appearance:none;-webkit-appearance:none;width:44px;height:26px;flex:none;" +
       "border-radius:13px;background:rgba(120,120,128,0.35);position:relative;outline:none;" +
       "cursor:pointer;transition:background 0.15s;border:none;margin:0}" +
-      ".uui-switch:checked{background:#34c759}" +
-      ".uui-switch::after{content:'';position:absolute;left:2px;top:2px;width:22px;height:22px;" +
+      ".iso-switch:checked{background:#34c759}" +
+      ".iso-switch::after{content:'';position:absolute;left:2px;top:2px;width:22px;height:22px;" +
       "border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.3);transition:left 0.15s}" +
-      ".uui-switch:checked::after{left:20px}" +
+      ".iso-switch:checked::after{left:20px}" +
       // iOS inset-grouped list: rows in rounded groups on the grouped
       // background, separators inset from the leading edge, the last row of
       // a group (before a header, or at the end) closing it. The groups are
       // rounded as iOS 26 rounds them: 26px, the circle that fits the
       // simulator's corner (10px was the radius before Liquid Glass); a
       // one-row group comes out a capsule, as there.
-      ".uui-ig{padding:12px 16px 24px;box-sizing:border-box;display:flex;flex-direction:column;align-self:stretch;width:100%}" +
-      ".uui-ig-row{background:var(--uui-cell-bg,#fff);position:relative}" +
+      ".iso-ig{padding:12px 16px 24px;box-sizing:border-box;display:flex;flex-direction:column;align-self:stretch;width:100%}" +
+      ".iso-ig-row{background:var(--iso-cell-bg,#fff);position:relative}" +
       // iOS 26's separator: inset 16pt from both edges, lighter than the
       // older hairline.
-      ".uui-ig-row::after{content:'';position:absolute;left:var(--uui-sep-l,16px);right:var(--uui-sep-r,16px);bottom:0;height:1px;background:var(--uui-ig-sep)}" +
-      ".uui-ig-row:first-child,.uui-ig-header+.uui-ig-row{border-top-left-radius:26px;border-top-right-radius:26px}" +
-      ".uui-ig-row:last-child,.uui-ig-row:has(+ .uui-ig-header){border-bottom-left-radius:26px;border-bottom-right-radius:26px}" +
-      ".uui-ig-row:last-child::after,.uui-ig-row:has(+ .uui-ig-header)::after{display:none}" +
-      ".uui-ig-selected,.uui-ig-selected *{color:#fff!important}" +
-      ".uui-ig-selected::after,.uui-ig-row:has(+ .uui-ig-selected)::after{display:none}" +
+      ".iso-ig-row::after{content:'';position:absolute;left:var(--iso-sep-l,16px);right:var(--iso-sep-r,16px);bottom:0;height:1px;background:var(--iso-ig-sep)}" +
+      ".iso-ig-row:first-child,.iso-ig-header+.iso-ig-row{border-top-left-radius:26px;border-top-right-radius:26px}" +
+      ".iso-ig-row:last-child,.iso-ig-row:has(+ .iso-ig-header){border-bottom-left-radius:26px;border-bottom-right-radius:26px}" +
+      ".iso-ig-row:last-child::after,.iso-ig-row:has(+ .iso-ig-header)::after{display:none}" +
+      ".iso-ig-selected,.iso-ig-selected *{color:#fff!important}" +
+      ".iso-ig-selected::after,.iso-ig-row:has(+ .iso-ig-selected)::after{display:none}" +
       // Headers as iOS 26 draws them: sentence case, secondary, a step
       // smaller than the rows.
-      ".uui-ig-header{padding:22px 16px 8px;font-size:15px;color:rgba(120,120,128,0.95)}" +
+      ".iso-ig-header{padding:22px 16px 8px;font-size:15px;color:rgba(120,120,128,0.95)}" +
       // iOS 26: the first header close under the title, 36pt between
       // sections without one.
-      ".uui-ig-header:first-child{padding-top:0!important}" +
-      ".uui-ig-gap{padding:0!important;height:36px;min-height:36px}" +
-      ".uui-plain-gap{padding:0!important;height:0;min-height:0!important;overflow:hidden}" +
+      ".iso-ig-header:first-child{padding-top:0!important}" +
+      ".iso-ig-gap{padding:0!important;height:36px;min-height:36px}" +
+      ".iso-plain-gap{padding:0!important;height:0;min-height:0!important;overflow:hidden}" +
       // Sheet content spans the panel; its own stacks keep their alignment.
-      ".uui-sheet-body>*{align-self:stretch}" +
-      ".uui-principal button{color:inherit}" +
+      ".iso-sheet-body>*{align-self:stretch}" +
+      ".iso-principal button{color:inherit}" +
       // macOS sidebar rows and headers.
       // The page itself never scrolls or rubber-bands (a phone browser's
       // overscroll dragged the bars with the document); only our scroll
       // containers scroll, and they do not chain to the page at their ends.
       // A document-scrolled page is the exception: the page is what scrolls.
-      // (boot.js puts `uui-document` on <html> while a phone-width page
+      // (boot.js puts `iso-document` on <html> while a phone-width page
       // scrolls as a document.)
       // The page scrolls down its length only: nothing pans it sideways,
       // not even to rubber-band (a phone browser pans a scrollable page on
       // both axes under a finger). Clipped rather than hidden, so the page
       // stays the scroll that sticky chrome sticks to; scrolls inside it
       // that run sideways are their own and keep their pan.
-      "html.uui-document{height:100%;overflow-x:clip;overscroll-behavior-x:none;touch-action:pan-y pinch-zoom}" +
-      "html.uui-document body{margin:0;min-height:100%;overflow-x:clip;overscroll-behavior-x:none;touch-action:pan-y pinch-zoom}" +
+      "html.iso-document{height:100%;overflow-x:clip;overscroll-behavior-x:none;touch-action:pan-y pinch-zoom}" +
+      "html.iso-document body{margin:0;min-height:100%;overflow-x:clip;overscroll-behavior-x:none;touch-action:pan-y pinch-zoom}" +
       // Everything around the document-scrolled screen's scroll takes its
       // content's height (at least the viewport's), so the page is as long
       // as the screen's content and sticky chrome in it travels the page.
       // (Stretched, too: a content-sized root is otherwise centered in the
       // page, and a short screen would sit in the middle of it.)
-      "[data-uui-document] :has([data-document-scroll]){flex:1 0 auto!important;min-height:auto!important;height:auto!important;max-height:none!important;place-self:stretch!important}" +
-      "html:not(.uui-document){overscroll-behavior:none;overflow:hidden;height:100%}" +
-      "html:not(.uui-document) body{overscroll-behavior:none;overflow:hidden;position:fixed;inset:0;width:100%;height:100dvh;margin:0}" +
-      "[data-edge-scroll],.uui-sheet-body,[data-uui-scroll]{overscroll-behavior:contain}" +
-      ".uui-no-sep::after{display:none!important}" +
-      ".uui-no-scrollbar::-webkit-scrollbar{display:none}" +
+      "[data-iso-document] :has([data-document-scroll]){flex:1 0 auto!important;min-height:auto!important;height:auto!important;max-height:none!important;place-self:stretch!important}" +
+      "html:not(.iso-document){overscroll-behavior:none;overflow:hidden;height:100%}" +
+      "html:not(.iso-document) body{overscroll-behavior:none;overflow:hidden;position:fixed;inset:0;width:100%;height:100dvh;margin:0}" +
+      "[data-edge-scroll],.iso-sheet-body,[data-iso-scroll]{overscroll-behavior:contain}" +
+      ".iso-no-sep::after{display:none!important}" +
+      ".iso-no-scrollbar::-webkit-scrollbar{display:none}" +
       // The Mac's push button (a Form's button at regular width): a
       // rounded fill, its label in the text colour.
       // Dark by the system's setting unless the app chose light, or by
       // the app's choice.
-      ".uui-mac-push{background:rgba(0,0,0,0.06);box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.18)}" +
-      ".uui-mac-push,.uui-mac-push *{color:rgba(0,0,0,0.85)!important}" +
-      "@media (prefers-color-scheme: dark){html:not([data-theme=light]) .uui-mac-push{background:rgba(255,255,255,0.13);box-shadow:inset 0 0.5px 0 rgba(255,255,255,0.12)}" +
-      "html:not([data-theme=light]) .uui-mac-push,html:not([data-theme=light]) .uui-mac-push *{color:rgba(255,255,255,0.88)!important}}" +
-      "html[data-theme=dark] .uui-mac-push{background:rgba(255,255,255,0.13);box-shadow:inset 0 0.5px 0 rgba(255,255,255,0.12)}" +
-      "html[data-theme=dark] .uui-mac-push,html[data-theme=dark] .uui-mac-push *{color:rgba(255,255,255,0.88)!important}" +
+      ".iso-mac-push{background:rgba(0,0,0,0.06);box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.18)}" +
+      ".iso-mac-push,.iso-mac-push *{color:rgba(0,0,0,0.85)!important}" +
+      "@media (prefers-color-scheme: dark){html:not([data-theme=light]) .iso-mac-push{background:rgba(255,255,255,0.13);box-shadow:inset 0 0.5px 0 rgba(255,255,255,0.12)}" +
+      "html:not([data-theme=light]) .iso-mac-push,html:not([data-theme=light]) .iso-mac-push *{color:rgba(255,255,255,0.88)!important}}" +
+      "html[data-theme=dark] .iso-mac-push{background:rgba(255,255,255,0.13);box-shadow:inset 0 0.5px 0 rgba(255,255,255,0.12)}" +
+      "html[data-theme=dark] .iso-mac-push,html[data-theme=dark] .iso-mac-push *{color:rgba(255,255,255,0.88)!important}" +
       // Disabled, its label dimmed as the Mac dims it.
-      ".uui-mac-push[data-disabled],.uui-mac-push[data-disabled] *{color:rgba(0,0,0,0.25)!important}" +
-      "@media (prefers-color-scheme: dark){html:not([data-theme=light]) .uui-mac-push[data-disabled],html:not([data-theme=light]) .uui-mac-push[data-disabled] *{color:rgba(255,255,255,0.25)!important}}" +
-      "html[data-theme=dark] .uui-mac-push[data-disabled],html[data-theme=dark] .uui-mac-push[data-disabled] *{color:rgba(255,255,255,0.25)!important}" +
-      ".uui-mac-form-header,.uui-mac-form-header *{font-size:13px!important;line-height:16px!important;font-weight:600!important;color:inherit!important}" +
-      ".uui-ios-form-header{padding-top:4px;padding-bottom:4px}" +
-      ".uui-ios-form-header *{font-size:17px!important;line-height:22px!important;font-weight:600!important}" +
-      ".uui-form-sep>*{background:var(--uui-ig-sep)!important}" +
-      ".uui-ios-list-label{gap:17px!important}" +
-      ".uui-ios-list-label>:first-child{width:24px;min-width:24px;justify-content:center;font-size:17px}" +
-      ".uui-ios-list-label-tint>:first-child,.uui-ios-list-label-tint>:first-child *{color:var(--uui-tint,#007aff)!important}" +
-      ".uui-mac-form-footer *{font-size:12px!important;line-height:16px!important}" +
+      ".iso-mac-push[data-disabled],.iso-mac-push[data-disabled] *{color:rgba(0,0,0,0.25)!important}" +
+      "@media (prefers-color-scheme: dark){html:not([data-theme=light]) .iso-mac-push[data-disabled],html:not([data-theme=light]) .iso-mac-push[data-disabled] *{color:rgba(255,255,255,0.25)!important}}" +
+      "html[data-theme=dark] .iso-mac-push[data-disabled],html[data-theme=dark] .iso-mac-push[data-disabled] *{color:rgba(255,255,255,0.25)!important}" +
+      ".iso-mac-form-header,.iso-mac-form-header *{font-size:13px!important;line-height:16px!important;font-weight:600!important;color:inherit!important}" +
+      ".iso-ios-form-header{padding-top:4px;padding-bottom:4px}" +
+      ".iso-ios-form-header *{font-size:17px!important;line-height:22px!important;font-weight:600!important}" +
+      ".iso-form-sep>*{background:var(--iso-ig-sep)!important}" +
+      ".iso-ios-list-label{gap:17px!important}" +
+      ".iso-ios-list-label>:first-child{width:24px;min-width:24px;justify-content:center;font-size:17px}" +
+      ".iso-ios-list-label-tint>:first-child,.iso-ios-list-label-tint>:first-child *{color:var(--iso-tint,#007aff)!important}" +
+      ".iso-mac-form-footer *{font-size:12px!important;line-height:16px!important}" +
       // A grouped cell's fill, for a list outside a grouped container too
       // (the fallback used to be white, which flashed in dark mode).
-      ":root{--uui-cell-bg:#fff;--uui-separator:rgba(60,60,67,0.29);--uui-ig-sep:rgba(60,60,67,0.12);--uui-mac-selection:#0064e1}" +
-      "@media (prefers-color-scheme: dark){:root{--uui-mac-selection:#0058d0}}" +
-      "html[data-theme=dark]{--uui-mac-selection:#0058d0}html[data-theme=light]{--uui-mac-selection:#0064e1}" +
-      "@media (prefers-color-scheme: dark){:root{--uui-cell-bg:#1c1c1e;--uui-separator:rgba(84,84,88,0.65);--uui-ig-sep:rgba(84,84,88,0.6)}}" +
-      "@media (min-width: 700px){:root{--uui-ig-sep:rgba(60,60,67,0.18)}}" +
-      "@media (min-width: 700px) and (prefers-color-scheme: dark){:root{--uui-ig-sep:rgba(255,255,255,0.1)}}" +
-      "@media (min-width: 700px) and (prefers-color-scheme: dark){:root{--uui-cell-bg:#2e2e30}}" +
-      ".uui-plain-row{position:relative}" +
-      ".uui-plain-row::after{content:'';position:absolute;left:16px;right:0;bottom:0;height:1px;background:rgba(120,120,128,0.3)}" +
-      ".uui-plain-row:last-child::after{display:none}" +
+      ":root{--iso-cell-bg:#fff;--iso-separator:rgba(60,60,67,0.29);--iso-ig-sep:rgba(60,60,67,0.12);--iso-mac-selection:#0064e1}" +
+      "@media (prefers-color-scheme: dark){:root{--iso-mac-selection:#0058d0}}" +
+      "html[data-theme=dark]{--iso-mac-selection:#0058d0}html[data-theme=light]{--iso-mac-selection:#0064e1}" +
+      "@media (prefers-color-scheme: dark){:root{--iso-cell-bg:#1c1c1e;--iso-separator:rgba(84,84,88,0.65);--iso-ig-sep:rgba(84,84,88,0.6)}}" +
+      "@media (min-width: 700px){:root{--iso-ig-sep:rgba(60,60,67,0.18)}}" +
+      "@media (min-width: 700px) and (prefers-color-scheme: dark){:root{--iso-ig-sep:rgba(255,255,255,0.1)}}" +
+      "@media (min-width: 700px) and (prefers-color-scheme: dark){:root{--iso-cell-bg:#2e2e30}}" +
+      ".iso-plain-row{position:relative}" +
+      ".iso-plain-row::after{content:'';position:absolute;left:16px;right:0;bottom:0;height:1px;background:rgba(120,120,128,0.3)}" +
+      ".iso-plain-row:last-child::after{display:none}" +
       // An iPhone's plain list stops its lines short of the trailing edge.
-      "@media (max-width: 699px){.uui-plain-row::after{right:16px}}" +
+      "@media (max-width: 699px){.iso-plain-row::after{right:16px}}" +
       // The page is the app's ground: black or white, the safe areas too.
       "body{background:#fff;color-scheme:light dark}" +
       "@media (prefers-color-scheme: dark){body{background:#000}}" +
       // Two columns wide, the Mac's dark window grey rather than the
       // iPhone's black (MAC_DARK_PAGE).
       "@media (min-width: 700px) and (prefers-color-scheme: dark){body{background:#232325}}" +
-      ".uui-sb-row{transition:background-color 0.1s}" +
-      ".uui-sb-row:hover:not(.uui-sb-selected){background:rgba(120,120,128,0.12)}" +
-      ".uui-sb-selected,.uui-sb-selected *{color:#fff !important}" +
-      ".uui-sb-selected svg{color:#fff !important}" +
-      ".uui-sb-header{padding:14px 20px 4px;font-size:11px;font-weight:600;color:rgba(120,120,128,0.9)}" +
+      ".iso-sb-row{transition:background-color 0.1s}" +
+      ".iso-sb-row:hover:not(.iso-sb-selected){background:rgba(120,120,128,0.12)}" +
+      ".iso-sb-selected,.iso-sb-selected *{color:#fff !important}" +
+      ".iso-sb-selected svg{color:#fff !important}" +
+      ".iso-sb-header{padding:14px 20px 4px;font-size:11px;font-weight:600;color:rgba(120,120,128,0.9)}" +
       // Thin, overlay-like scrollbars everywhere (the always-on dark
       // scrollbar looked like a control).
       "*{scrollbar-width:thin;scrollbar-color:rgba(120,120,128,0.45) transparent}";
@@ -344,22 +350,40 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
 
   // Node kinds that take input on their own, without a tap/drag/edit field.
   const LAYER_INPUT_KINDS = new Set([
-    "scroll", "webview", "video", "toggle", "textField", "slider", "search", "picker", "menu", "map",
+    "scroll", "webview", "video", "toggle", "textField", "slider", "search", "picker", "menu", "map", "metal",
     "datepicker", "codeeditor", "tabbar", "navbar", "presentation", "hostView", "surface",
   ]);
+
+  // What SwiftUI hit-tests: content (text, images, shapes, controls, a
+  // filled background) and anything with a gesture or an input of its own;
+  // not a stack's, a spacer's or a frame's empty space. Upper ZStack layers
+  // pass the pointer through the rest (`.iso-pass`).
+  const HIT_KINDS = new Set(["text", "image", "shape", "gradient", "divider", "progress"]);
+  function hittable(n) {
+    if (n.tap || n.drag || n.edit) return true;
+    if (HIT_KINDS.has(n.k) || LAYER_INPUT_KINDS.has(n.k)) return true;
+    if (n.gradient) return true;
+    if (n.bg) return !(Array.isArray(n.bg) && n.bg.length === 4 && n.bg[3] === 0);
+    return false;
+  }
 
   function interactive(n, props) {
     accessibility(n, props);
     const params = n.params || {};
     if (params.tint) {
       // `.tint`: buttons/links in the subtree read the accent from this var.
-      props.style = { ...(props.style || {}), "--uui-tint": params.tint, accentColor: params.tint };
+      props.style = { ...(props.style || {}), "--iso-tint": params.tint, accentColor: params.tint };
     }
     if (params.clip === "1") props.style = { ...(props.style || {}), overflow: "hidden" };
     // `.zIndex`, `.allowsHitTesting(false)`, `.blur`, `.help`, `.onHover`,
     // `.keyboardShortcut` (found by the key handler below).
     if (params.z) props.style = { ...(props.style || {}), zIndex: Number(params.z), position: (props.style || {}).position || "relative" };
-    if (params.nohit === "1") props.style = { ...(props.style || {}), pointerEvents: "none" };
+    if (params.nohit === "1") {
+      props.style = { ...(props.style || {}), pointerEvents: "none" };
+      props["data-nohit"] = "";
+    } else if (hittable(n)) {
+      props["data-hit"] = "";
+    }
     if (params.blur) props.style = { ...(props.style || {}), filter: `blur(${Number(params.blur)}px)` };
     if (params.help) props.title = params.help;
     if (params.hover) {
@@ -376,15 +400,15 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       const desk = isDesktop();
       const role = params.form;
       if (desk && (role === "header" || role === "footer")) {
-        props.className = ((props.className || "") + " uui-mac-form-" + role).trim();
+        props.className = ((props.className || "") + " iso-mac-form-" + role).trim();
       } else if (!desk && role === "header") {
-        props.className = ((props.className || "") + " uui-ios-form-header").trim();
+        props.className = ((props.className || "") + " iso-ios-form-header").trim();
       } else if (!desk && role === "row") {
         props.style = { ...(props.style || {}), minHeight: 52, paddingTop: 13, paddingBottom: 13 };
       } else if (!desk && role === "card") {
         props.style = { ...(props.style || {}), borderRadius: 26 };
       }
-      if (role === "separator") props.className = ((props.className || "") + " uui-form-sep").trim();
+      if (role === "separator") props.className = ((props.className || "") + " iso-form-sep").trim();
     }
     // A Label in an iPhone's inset-grouped row: its icon in a column of its
     // own and the title on the row's text line, the icon in the accent
@@ -394,7 +418,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       // around the label, a destructive button's red, keep theirs.)
       const icon = (n.ch || [])[0];
       const plain = !!icon && ((icon.params || {}).autoColor === "1");
-      props.className = ((props.className || "") + " uui-ios-list-label" + (plain ? " uui-ios-list-label-tint" : "")).trim();
+      props.className = ((props.className || "") + " iso-ios-list-label" + (plain ? " iso-ios-list-label-tint" : "")).trim();
     }
     // `.textSelection`: said outright, so a container that turns selection
     // off (a context menu's long press) doesn't turn it off here, and an
@@ -429,7 +453,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       // fingers since it began ("changed:m" / "ended:m"). A trackpad pinch
       // arrives as ctrl+wheel, and ends once it pauses.
       if (magnify) props.style = { ...(props.style || {}), touchAction: "none" };
-      const state = (el) => (el.__uuiGesture ||= { points: new Map(), start: null, spread: null, zoom: 1, moved: { x: 0, y: 0 } });
+      const state = (el) => (el.__isoGesture ||= { points: new Map(), start: null, spread: null, zoom: 1, moved: { x: 0, y: 0 } });
       const centroid = (points) => {
         let x = 0, y = 0;
         for (const p of points.values()) { x += p.x; y += p.y; }
@@ -456,7 +480,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         if (st.points.size === 2) st.spread = { base: spread(st.points), zoom: st.zoom };
       };
       props.onPointerMove = (e) => {
-        const st = e.currentTarget.__uuiGesture;
+        const st = e.currentTarget.__isoGesture;
         if (!st || !st.points.has(e.pointerId)) return;
         st.points.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (!st.engaged) {
@@ -474,7 +498,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         }
       };
       const end = (e) => {
-        const st = e.currentTarget.__uuiGesture;
+        const st = e.currentTarget.__isoGesture;
         if (!st || !st.points.has(e.pointerId)) return;
         st.points.delete(e.pointerId);
         if (st.points.size > 0) {
@@ -488,7 +512,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           if (n.drag) sendEvent(n.drag, `ended:${st.moved.x},${st.moved.y}`);
           if (magnify) sendEvent(magnify, `ended:${st.zoom}`);
         }
-        e.currentTarget.__uuiGesture = null;
+        e.currentTarget.__isoGesture = null;
       };
       props.onPointerUp = end;
       props.onPointerCancel = end;
@@ -501,7 +525,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           st.zoom *= Math.exp(-e.deltaY / 100);
           sendEvent(magnify, `changed:${st.zoom}`);
           clearTimeout(st.wheelEnd);
-          st.wheelEnd = setTimeout(() => { sendEvent(magnify, `ended:${st.zoom}`); el.__uuiGesture = null; }, 150);
+          st.wheelEnd = setTimeout(() => { sendEvent(magnify, `ended:${st.zoom}`); el.__isoGesture = null; }, 150);
         };
       }
     }
@@ -531,13 +555,13 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         sendEvent(n.tap, "");
       };
       // Web-idiomatic press feedback on tappable regions.
-      props.className = ((props.className || "") + " uui-tap").trim();
+      props.className = ((props.className || "") + " iso-tap").trim();
       // A row's button of the automatic style, two columns wide: the Mac's
       // push button (a Form's on the Mac), not the iPhone's tinted words.
       const pp = n.params || {};
       if (pp.disabled === "1") { props["data-disabled"] = "1"; props.style = { ...(props.style || {}), cursor: "default" }; }
       if (inListCell && pp.button === "automatic" && pp.role !== "destructive" && isDesktop()) {
-        props.className += " uui-mac-push";
+        props.className += " iso-mac-push";
         Object.assign(props.style, {
           padding: "3px 12px", borderRadius: 6, alignSelf: n.expandW ? props.style.alignSelf : "flex-start",
           fontSize: 13, lineHeight: "18px",
@@ -883,7 +907,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     });
     return h("div", {
       ref,
-      className: "uui-principal",
+      className: "iso-principal",
       style: {
         display: "inline-flex", alignItems: "center", justifyContent: "center", maxWidth: "100%", overflow: "visible", fontWeight: 400,
         color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
@@ -996,7 +1020,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           onSelect: (j) => sendEvent(n.edit, `segment:${i}:${j}`),
         })
       : h("button", {
-          key: `t${i}`, className: "uui-bar-item",
+          key: `t${i}`, className: "iso-bar-item",
           "aria-label": trailingLabels[i] || undefined,
           style: { ...itemStyle(trailingSymbols[i]), ...(prominent[i] === "1" ? { fontWeight: 600 } : {}), ...(extra || {}) },
           onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
@@ -1007,7 +1031,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     // (at the end of the sidebar's bar, or the start of the detail's while
     // the sidebar is hidden) and the detail's title at its leading edge.
     const sidebarToggle = n.onToggleSidebar ? h("button", {
-      key: "sidebar", className: "uui-bar-item", style: circle, onClick: n.onToggleSidebar,
+      key: "sidebar", className: "iso-bar-item", style: circle, onClick: n.onToggleSidebar,
       "aria-label": n.desktopColumn === "sidebar" ? "Hide Sidebar" : "Show Sidebar",
     }, symbolSVG(h, "sidebar.left", 17, "currentColor", 500, { verticalAlign: "0" }) || "◧") : null;
     const leadingTitle = desktop && !!n.desktopColumn && n.desktopColumn !== "sidebar" && principal < 0 && !n.pill && !!p.title;
@@ -1020,13 +1044,13 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         p.back === "1"
           // iOS 26's Back: the chevron alone in a round button (its title
           // is for assistive tech); the desktop keeps the word.
-          ? h("button", { key: "back", className: "uui-bar-item", "aria-label": "Back",
+          ? h("button", { key: "back", className: "iso-bar-item", "aria-label": "Back",
               style: desktop ? { ...button, display: "inline-flex", alignItems: "center", gap: 2, paddingLeft: 6, paddingRight: 9 } : circle,
               onClick: () => (n.onBack ? n.onBack() : sendEvent(n.edit, "back")) },
               symbolSVG(h, "chevron.left", desktop ? 17 : 21, "currentColor", 600, { verticalAlign: "0" }), desktop ? "Back" : null)
           : null,
         leading.map((title, i) => n.hiddenLeading && n.hiddenLeading.has(i) ? null : h("button", {
-          key: `l${i}`, className: "uui-bar-item", style: itemStyle(leadingSymbols[i]), "aria-label": leadingLabels[i] || undefined,
+          key: `l${i}`, className: "iso-bar-item", style: itemStyle(leadingSymbols[i]), "aria-label": leadingLabels[i] || undefined,
           onClick: () => sendEvent(n.edit, `leading:${i}`),
         }, itemContent(title, leadingSymbols[i]))),
         leadingTitle
@@ -1074,7 +1098,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         trailing.map((title, i) => i === principal || (n.hiddenTrailing && n.hiddenTrailing.has(i)) ? null : trailingItem(i)),
         // A bottom bar's buttons, in the Mac's toolbar.
         (n.liftedButtons || []).map((b, i) => h("button", {
-          key: `lift${i}`, className: "uui-bar-item", style: itemStyle(b.symbol), "aria-label": b.label || undefined,
+          key: `lift${i}`, className: "iso-bar-item", style: itemStyle(b.symbol), "aria-label": b.label || undefined,
           onClick: () => sendEvent(b.tap, ""),
         }, itemContent(b.label || "•", b.symbol))),
         n.desktopColumn === "sidebar" ? sidebarToggle : null));
@@ -1132,7 +1156,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           flex: 1, border: "none", background: "none", cursor: "pointer",
           display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
           padding: "7px 0 5px", fontSize: 11, opacity: active ? 1 : 0.45,
-          color: active ? "var(--uui-tint, #0a84ff)" : "rgba(0,0,0,0.55)",
+          color: active ? "var(--iso-tint, #0a84ff)" : "rgba(0,0,0,0.55)",
         },
       },
         p["glyph" + i]
@@ -1364,8 +1388,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch",
           // Nothing pins over the content here: its edge scroll takes no
           // top inset (an enclosing bar's must not reach it).
-          "--uui-inset-top": "0px",
-          ...(rows.length > 1 ? { "--uui-safe-top": "0px" } : {}),
+          "--iso-inset-top": "0px",
+          ...(rows.length > 1 ? { "--iso-safe-top": "0px" } : {}),
         },
       }, kids));
     }
@@ -1381,12 +1405,12 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         const confirm = action.place === "confirmationAction";
         const destructive = action.place === "destructiveAction";
         return h("button", {
-          key: action.event, className: "uui-bar-item", onClick: () => sendEvent(n.edit, action.event),
+          key: action.event, className: "iso-bar-item", onClick: () => sendEvent(n.edit, action.event),
           style: {
             minWidth: 72, height: 24, padding: "0 12px", borderRadius: 6, fontSize: 13, fontWeight: confirm ? 600 : 400,
             fontFamily: SYSTEM_FONT, cursor: "pointer",
             border: confirm ? "none" : `1px solid ${dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-            background: confirm ? "var(--uui-tint, #0a84ff)" : dark ? "rgba(255,255,255,0.12)" : "#fff",
+            background: confirm ? "var(--iso-tint, #0a84ff)" : dark ? "rgba(255,255,255,0.12)" : "#fff",
             color: confirm ? "#fff" : destructive ? "#ff453a" : "inherit",
           },
         }, action.title);
@@ -1399,7 +1423,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         display: "flex", flexDirection: "column", flex: 1, position: "relative",
         minHeight: 0, minWidth: 0, alignSelf: "stretch", width: "100%",
         color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
-        ...(pinned ? { "--uui-inset-top": `calc(52px + ${SAFE_TOP})` } : {}),
+        ...(pinned ? { "--iso-inset-top": `calc(52px + ${SAFE_TOP})` } : {}),
       },
     }, rows);
   }
@@ -1451,11 +1475,11 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const count = Number(p.count || 0);
     const selected = Number(p.selected || 0);
     const [collapsed, setCollapsed] = R.useState(() => {
-      try { return localStorage.getItem("uui-sidebar-collapsed") === "1"; }
+      try { return localStorage.getItem("iso-sidebar-collapsed") === "1"; }
       catch (_) { return false; }
     });
     const toggle = () => setCollapsed((value) => {
-      try { localStorage.setItem("uui-sidebar-collapsed", value ? "0" : "1"); }
+      try { localStorage.setItem("iso-sidebar-collapsed", value ? "0" : "1"); }
       catch (_) {}
       return !value;
     });
@@ -1611,7 +1635,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         },
       },
         p["glyph" + i]
-          ? h("span", { style: { fontSize: 15, width: 22, textAlign: "center", color: "var(--uui-tint, #0a84ff)" } }, p["glyph" + i])
+          ? h("span", { style: { fontSize: 15, width: 22, textAlign: "center", color: "var(--iso-tint, #0a84ff)" } }, p["glyph" + i])
           : null,
         h("span", null, p["label" + i] || ""));
     };
@@ -1830,7 +1854,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         key: "back",
         onClick: onBack,
         style: {
-          padding: "10px 14px", color: "var(--uui-tint, #0a84ff)", cursor: "pointer",
+          padding: "10px 14px", color: "var(--iso-tint, #0a84ff)", cursor: "pointer",
           fontSize: 16, flex: "none",
           fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
         },
@@ -1921,7 +1945,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   // screen they belong to, and the screen's outermost vertical scroll flows
   // beneath them with content insets — the iOS shape — so its content can
   // always reach the top and bottom. The insets travel as CSS variables
-  // (`--uui-inset-top/bottom`) from the chrome's container to the scroll,
+  // (`--iso-inset-top/bottom`) from the chrome's container to the scroll,
   // which consumes them as padding and zeroes them for its descendants.
   // Content that is not a scroll is simply laid out inside the insets.
   // The scroll-edge frost's fade: whole under the status bar and the top of
@@ -1951,8 +1975,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     if (name && isDesktop() && pageDark() && MAC_DARK_FILLS[name]) return MAC_DARK_FILLS[name];
     // A sheet's grounds are the sheet's to say (a floating sheet's glass
     // shows through them).
-    if (name === "elevatedGroupedBackground") return `var(--uui-sheet-grouped-bg, ${rgba(color)})`;
-    if (name === "elevatedSecondaryBackground") return `var(--uui-sheet-cell-bg, ${rgba(color)})`;
+    if (name === "elevatedGroupedBackground") return `var(--iso-sheet-grouped-bg, ${rgba(color)})`;
+    if (name === "elevatedSecondaryBackground") return `var(--iso-sheet-cell-bg, ${rgba(color)})`;
     return rgba(color);
   }
   const CELL_BACKGROUND = (dark) => dark ? (isDesktop() ? "#2e2e30" : "#1c1c1e") : "#ffffff";
@@ -2000,17 +2024,17 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   // `\.defaultMinListRowHeight` on this list when it is not the platform's
   // 44 (its "minRowHeight"): the least a row is tall.
   let currentListMinRowHeight = null;
-  const INSET_TOP = "var(--uui-inset-top, 0px)";
+  const INSET_TOP = "var(--iso-inset-top, 0px)";
   // The top safe area a pinned bar reaches into: the screen's (the status
   // bar), except in a sheet, whose top edge is below it.
-  const SAFE_TOP = "var(--uui-safe-top, env(safe-area-inset-top, 0px))";
-  const INSET_BOTTOM = "var(--uui-inset-bottom, 0px)";
+  const SAFE_TOP = "var(--iso-safe-top, env(safe-area-inset-top, 0px))";
+  const INSET_BOTTOM = "var(--iso-inset-bottom, 0px)";
   const edgeScrolls = new WeakSet();
   // Custom properties resolve on the element that declares them, so a box
   // that pads itself by the insets zeroes them for its descendants one
   // level down (a box-less wrapper).
   const insetsEnd = (key, kids) => h("div", {
-    key, style: { display: "contents", "--uui-inset-top": "0px", "--uui-inset-bottom": "0px" },
+    key, style: { display: "contents", "--iso-inset-top": "0px", "--iso-inset-bottom": "0px" },
   }, kids);
   // The outermost vertical scroll a screen's content reaches through plain
   // wrappers (boxes, single-child columns, the content side of an inset
@@ -2055,7 +2079,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0,
       alignSelf: "stretch", width: "100%", position: "relative", boxSizing: "border-box",
       // Chrome at the top took the status bar's safe area.
-      ...(belowTopChrome ? { "--uui-safe-top": "0px" } : {}),
+      ...(belowTopChrome ? { "--iso-safe-top": "0px" } : {}),
     };
     if (!hasEdgeScroll) {
       style.paddingTop = INSET_TOP;
@@ -2074,13 +2098,13 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       const container = ref.current, bar = barRef.current;
       // Document-scrolled, the bar is in the page's flow (sticky): no inset.
       if (!container || !bar || fixed) return undefined;
-      const name = edge === "top" ? "--uui-inset-top" : "--uui-inset-bottom";
+      const name = edge === "top" ? "--iso-inset-top" : "--iso-inset-bottom";
       const apply = () => {
         container.style.setProperty(name, `${bar.getBoundingClientRect().height}px`);
         // The scroll's inset changed without the scroll or its rows changing
         // size (the keyboard came up under a composer): a scroll pinned to
         // its end takes the end again, after the new inset.
-        window.dispatchEvent(new Event("uui-insets"));
+        window.dispatchEvent(new Event("iso-insets"));
       };
       apply();
       if (typeof ResizeObserver === "undefined") return undefined;
@@ -2096,7 +2120,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const bar = h("div", {
       key: "inset",
       ref: barRef,
-      ...(fixed ? { "data-uui-inset-bar": edge } : {}),
+      ...(fixed ? { "data-iso-inset-bar": edge } : {}),
       style: {
         // On a document-scrolled page the bar is in the page's flow, after
         // (or before) the content, and sticks to the viewport's edge as the
@@ -2110,7 +2134,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         // pads the keyboard's height; this stack reaches down into it).
         [edge === "top" ? "paddingTop" : "paddingBottom"]: edge === "top"
           ? SAFE_TOP
-          : "calc(var(--uui-keyboard, 0px) + var(--uui-safe-bottom, env(safe-area-inset-bottom, 0px)))",
+          : "calc(var(--iso-keyboard, 0px) + var(--iso-safe-bottom, env(safe-area-inset-bottom, 0px)))",
         // No fill of its own: as on iOS, the inset's content draws what it
         // wants (a composer pill), and the scroll shows through around it.
       },
@@ -2120,7 +2144,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       // scrolls through it, with the bar stuck to the viewport's edge. At
       // least the viewport's height, so a short screen's bar still sits at
       // the bottom.
-      const content = h("div", { key: "content", style: { display: "flex", flexDirection: "column", flex: "1 0 auto", minWidth: 0, width: "100%", "--uui-inset-bottom": "0px" } }, kids[contentIndex]);
+      const content = h("div", { key: "content", style: { display: "flex", flexDirection: "column", flex: "1 0 auto", minWidth: 0, width: "100%", "--iso-inset-bottom": "0px" } }, kids[contentIndex]);
       return h("div", {
         ref,
         style: {
@@ -2133,7 +2157,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       ref,
       style: {
         ...style, display: "flex", flexDirection: "column", position: "relative", minHeight: 0, minWidth: 0,
-        ...(edge === "bottom" ? { marginBottom: "calc(-1 * var(--uui-keyboard, 0px))" } : {}),
+        ...(edge === "bottom" ? { marginBottom: "calc(-1 * var(--iso-keyboard, 0px))" } : {}),
       },
     }, insetContent("content", kids[contentIndex], hasEdgeScroll, edge === "top"), bar);
   }
@@ -2142,7 +2166,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
   // a bottom `.safeAreaInset` bar stuck over it.
   function documentVisibleBottom() {
     let bottom = window.innerHeight;
-    for (const bar of document.querySelectorAll('[data-uui-inset-bar="bottom"]')) {
+    for (const bar of document.querySelectorAll('[data-iso-inset-bar="bottom"]')) {
       const r = bar.getBoundingClientRect();
       if (r.height > 0) bottom = Math.min(bottom, r.top);
     }
@@ -2195,7 +2219,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const report = () => {
       const el = ref.current;
       if (!el || !windowId) return;
-      const cells = [...el.querySelectorAll("[data-uui-cell]")].filter((c) => c.closest("[data-uui-scroll]") === el);
+      const cells = [...el.querySelectorAll("[data-iso-cell]")].filter((c) => c.closest("[data-iso-scroll]") === el);
       if (!cells.length) return;
       const box = doc ? { top: 0, bottom: window.innerHeight } : el.getBoundingClientRect();
       // Binary search: the first cell reaching below the top, the last
@@ -2334,18 +2358,18 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       }
       const viewport = window.visualViewport;
       if (viewport) viewport.addEventListener("resize", pin);
-      window.addEventListener("uui-insets", pin);
+      window.addEventListener("iso-insets", pin);
       return () => {
         observer.current = null;
         if (watch) watch.disconnect();
         if (viewport) viewport.removeEventListener("resize", pin);
-        window.removeEventListener("uui-insets", pin);
+        window.removeEventListener("iso-insets", pin);
       };
     }, [doc]);
     return h("div", {
       ...divProps,
       ref,
-      className: bottom ? ((divProps.className || "") + " uui-anchor-bottom").trim() : divProps.className,
+      className: bottom ? ((divProps.className || "") + " iso-anchor-bottom").trim() : divProps.className,
       onScroll: (e) => {
         const el = e.currentTarget;
         if (!doc) track(el.scrollTop, el.scrollHeight - el.clientHeight);
@@ -2365,7 +2389,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       case "toggle":
         return h("input", {
           type: "checkbox",
-          className: "uui-switch",
+          className: "iso-switch",
           checked: n.v === "1",
           onChange: (e) => sendEvent(n.edit, e.target.checked ? "1" : "0"),
         });
@@ -2426,7 +2450,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         return h(CodeEditor, { key: props.key, n });
       case "surface": {
         // A page-owned surface: the host mounts its own DOM into this
-        // element (`window.uuiSurfaceMount(name, element | null, send)`),
+        // element (`window.isoSurfaceMount(name, element | null, send)`),
         // e.g. the Playground's running build; `send` reports back through
         // the host view's value channel.
         props.style = {
@@ -2435,8 +2459,18 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         };
         const name = n.v;
         const send = (value) => sendEvent(n.edit, value);
-        props.ref = (el) => { if (window.uuiSurfaceMount) window.uuiSurfaceMount(name, el, send); };
+        props.ref = (el) => { if (window.isoSurfaceMount) window.isoSurfaceMount(name, el, send); };
         return h("div", props);
+      }
+      case "metal": {
+        // A MetalView: a canvas of its own, a surface of the page's Metal
+        // executor, drawn each animation frame (metalViews in boot.js).
+        props.style = {
+          ...props.style, width: "100%", height: "100%", flex: 1,
+          alignSelf: "stretch", display: "block",
+        };
+        if (metalViews) props.ref = (el) => metalViews.attach(el, n.v, (value) => sendEvent(n.edit, value));
+        return h("canvas", props);
       }
       case "map": {
         // Real SwiftMap tiles: the wasm module draws into the page canvas,
@@ -2641,7 +2675,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       dx < 0 && trailing.length ? h("div", { key: "r", style: { position: "absolute", right: 0, top: 0, bottom: 0, display: "flex", justifyContent: "flex-end", width: -dx } }, trailing.map((it, i) => button(it, i, "t"))) : null,
       h("div", { key: "c", ...divProps, style: { ...divProps.style, alignSelf: "stretch", flex: "1 1 auto", transform: dx ? `translateX(${dx}px)` : undefined, transition: drag.current.active ? "none" : "transform 0.2s ease-out", // Opaque only while it slides over the buttons: at rest the row is
         // its cell's ground, whatever that is.
-        background: divProps.style.background || (dx ? "var(--uui-cell-bg, Canvas)" : undefined) } }, children));
+        background: divProps.style.background || (dx ? "var(--iso-cell-bg, Canvas)" : undefined) } }, children));
   }
 
   /// A concatenated Text's spans: `length:flags[:r,g,b,a]` per run, ";"
@@ -2828,7 +2862,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     R.useLayoutEffect(() => {
       if (compact || !greedy) return;
       const panel = panelRef.current;
-      const scroller = panel && panel.querySelector("[data-edge-scroll],[data-uui-scroll]");
+      const scroller = panel && panel.querySelector("[data-edge-scroll],[data-iso-scroll]");
       if (!scroller) return;
       const most = Math.min(window.innerHeight * 0.85, 760);
       // What the scroll holds, which its scrollHeight does not say when it
@@ -2882,8 +2916,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           ...(floating ? {
             backdropFilter: "blur(30px) saturate(1.8)", WebkitBackdropFilter: "blur(30px) saturate(1.8)",
             borderRadius: 42, marginBottom: 8, width: "calc(100% - 16px)",
-            "--uui-sheet-grouped-bg": "transparent",
-            "--uui-sheet-cell-bg": pageDark() ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+            "--iso-sheet-grouped-bg": "transparent",
+            "--iso-sheet-cell-bg": pageDark() ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
           } : { borderTopLeftRadius: 50, borderTopRightRadius: 50, width: "100%" }),
           boxSizing: "border-box", height: heightFor(detent),
           overflow: "hidden", padding: greedy ? 0 : "8px 16px 16px",
@@ -2891,7 +2925,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           display: "flex", flexDirection: "column", alignItems: "stretch",
           transform: shown ? `translateY(${dragY}px)` : "translateY(100%)",
           transition: drag.current.dragging ? "none" : "transform 0.24s cubic-bezier(0.2,0.8,0.2,1)",
-          paddingBottom: greedy || floating ? 0 : "calc(16px + var(--uui-safe-bottom, env(safe-area-inset-bottom, 0px)))",
+          paddingBottom: greedy || floating ? 0 : "calc(16px + var(--iso-safe-bottom, env(safe-area-inset-bottom, 0px)))",
         }
       : {
           background: panelBg, borderRadius: 14, boxSizing: "border-box",
@@ -2923,7 +2957,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       style: panelStyle,
     }, grabber ? h("div", { key: "grab", style: { alignSelf: "center", width: 36, height: 5, borderRadius: 3, background: "rgba(120,120,128,0.45)", margin: "6px 0 2px", flex: "none" } }) : null,
        // The body keeps the home indicator's inset below its last row.
-       h("div", { key: "body", className: "uui-sheet-body", style: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", alignItems: "stretch", overflowY: greedy ? "hidden" : "auto", "--uui-safe-top": "0px", ...(pageDark() && !(compact && detent === "medium") ? { "--uui-sheet-grouped-bg": compact ? "#1c1c1e" : MAC_DARK_PAGE, "--uui-sheet-cell-bg": compact ? "#2c2c2e" : "#2b2b2d" } : {}), "--uui-inset-bottom": compact ? "var(--uui-safe-bottom, env(safe-area-inset-bottom, 0px))" : "0px" } }, kids)));
+       h("div", { key: "body", className: "iso-sheet-body", style: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", alignItems: "stretch", overflowY: greedy ? "hidden" : "auto", "--iso-safe-top": "0px", ...(pageDark() && !(compact && detent === "medium") ? { "--iso-sheet-grouped-bg": compact ? "#1c1c1e" : MAC_DARK_PAGE, "--iso-sheet-cell-bg": compact ? "#2c2c2e" : "#2b2b2d" } : {}), "--iso-inset-bottom": compact ? "var(--iso-safe-bottom, env(safe-area-inset-bottom, 0px))" : "0px" } }, kids)));
   }
 
   let renderDepth = 0;
@@ -2939,12 +2973,12 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     R.useLayoutEffect(() => {
       if (!n.key || (n.params || {}).placeholder) return;
       const escaped = window.CSS && CSS.escape ? CSS.escape(n.key) : n.key.replace(/"/g, '\\"');
-      const el = document.querySelector(`[data-uui-key="${escaped}"]`);
+      const el = document.querySelector(`[data-iso-key="${escaped}"]`);
       if (el) rowHeights.set(n.key, el.getBoundingClientRect().height);
     });
     if ((n.params || {}).placeholder) {
       return h("div", {
-        "data-uui-cell": "1", "data-uui-key": n.key,
+        "data-iso-cell": "1", "data-iso-key": n.key,
         style: { height: rowHeights.get(n.key) || 60, flex: "0 0 auto", alignSelf: "stretch" },
       });
     }
@@ -3253,12 +3287,17 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
                 // A layer spans the whole stack, but only its content is
                 // hittable: the empty part lets taps through to the layers
                 // below (a send button over a text field must not swallow
-                // taps on the field). Inherited, so the child re-enables it.
+                // taps on the field). Inherited: the child below re-enables
+                // it (all of the bottom layer, what can be hit above it).
                 pointerEvents: "none",
               },
             }, h("div", {
+              // The bottom layer takes the pointer over its box; those above
+              // it only where they have something to hit (a full-size layer
+              // of controls over a map must leave the map its drags).
+              className: i > 0 ? "iso-pass" : undefined,
               style: {
-                pointerEvents: "auto", display: "flex",
+                pointerEvents: i > 0 ? undefined : "auto", display: "flex",
                 minWidth: fixedSize(c).w, minHeight: fixedSize(c).h,
                 width: c.growW ? "100%" : undefined, height: c.growH ? "100%" : undefined,
               },
@@ -3354,7 +3393,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         // `.scrollIndicators(.hidden)`.
         if ((n.params || {}).indicators === "hidden") {
           s.scrollbarWidth = "none";
-          props.className = ((props.className || "") + " uui-no-scrollbar").trim();
+          props.className = ((props.className || "") + " iso-no-scrollbar").trim();
         }
         // `.scrollDisabled(true)`: laid out the same, not scrollable.
         const scrollDisabled = (n.params || {}).scrollDisabled === "1";
@@ -3371,7 +3410,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           props["data-document-scroll"] = "1";
         }
         s.overscrollBehavior = "contain";
-        props["data-uui-scroll"] = "1";
+        props["data-iso-scroll"] = "1";
         if (edgeScrolls.has(n)) {
           // The screen's edge scroll: chrome insets become content insets,
           // and end here (nested scrolls are not under the chrome).
@@ -3391,10 +3430,10 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           // In a sheet the grouped ground and cells take the sheet's own
           // (elevated) colours, as iOS raises a sheet's grouped list.
           // (`.scrollContentBackground(.hidden)`: what is behind shows.)
-          s.background = (n.params || {}).contentBg === "hidden" ? "transparent" : `var(--uui-sheet-grouped-bg, ${GROUPED_BACKGROUND(dark)})`;
-          s["--uui-cell-bg"] = `var(--uui-sheet-cell-bg, ${CELL_BACKGROUND(dark)})`;
-          s["--uui-separator"] = SEPARATOR(dark);
-          kids = h("div", { key: "grouped", className: "uui-ig" }, kids);
+          s.background = (n.params || {}).contentBg === "hidden" ? "transparent" : `var(--iso-sheet-grouped-bg, ${GROUPED_BACKGROUND(dark)})`;
+          s["--iso-cell-bg"] = `var(--iso-sheet-cell-bg, ${CELL_BACKGROUND(dark)})`;
+          s["--iso-separator"] = SEPARATOR(dark);
+          kids = h("div", { key: "grouped", className: "iso-ig" }, kids);
         }
         // `.scrollDismissesKeyboard(.immediately / .interactively)`: a scroll
         // (or a touch drag) blurs the focused field, closing the soft keyboard.
@@ -3406,9 +3445,9 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             const active = document.activeElement;
             if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) active.blur();
           };
-          props.onTouchStart = (e) => { e.currentTarget.__uuiTouchY = e.touches[0] ? e.touches[0].clientY : null; };
+          props.onTouchStart = (e) => { e.currentTarget.__isoTouchY = e.touches[0] ? e.touches[0].clientY : null; };
           props.onTouchMove = (e) => {
-            const start = e.currentTarget.__uuiTouchY;
+            const start = e.currentTarget.__isoTouchY;
             if (start != null && e.touches[0] && Math.abs(e.touches[0].clientY - start) > 12) dismiss();
           };
         }
@@ -3452,7 +3491,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         return h("input", props);
       case "progress":
         if (n.v == null) {
-          props.className = ((props.className || "") + " uui-spinner").trim();
+          props.className = ((props.className || "") + " iso-spinner").trim();
           // `.controlSize`: the small spinner is 16px (Apple's), mini 12.
           const size = (n.params || {}).size;
           if (size === "small") { s.width = 16; s.height = 16; s.borderWidth = 2; }
@@ -3476,7 +3515,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         s.position = "relative";
         s.background = "rgba(120,120,128,0.24)";
         return h("div", props, h("div", {
-          style: { position: "absolute", left: 0, top: 0, bottom: 0, width: `${fraction * 100}%`, borderRadius: 2, background: "var(--uui-tint, #0a84ff)" },
+          style: { position: "absolute", left: 0, top: 0, bottom: 0, width: `${fraction * 100}%`, borderRadius: 2, background: "var(--iso-tint, #0a84ff)" },
         }));
       case "shape":
       case "gradient": {
@@ -3645,8 +3684,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         // chrome — this host's row idiom: comfortable padding, a minimum
         // touch height, and a hairline separator.
         if ((n.params || {}).cell) {
-          props["data-uui-cell"] = "1";
-          if (n.key) props["data-uui-key"] = n.key;
+          props["data-iso-cell"] = "1";
+          if (n.key) props["data-iso-key"] = n.key;
         }
         if ((n.params || {}).cell === "row") {
           const selected = (n.params || {}).selected === "1";
@@ -3669,10 +3708,10 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             // selection with a white label.
             s.padding = "5px 10px"; s.minHeight = 28; s.margin = "1px 10px"; s.borderRadius = 6; s.width = "calc(100% - 20px)"; s.alignSelf = "flex-start";
             s.boxSizing = "border-box"; s.justifyContent = "center"; s.fontSize = 13;
-            props.className = ((props.className || "") + " uui-sb-row" + (selected ? " uui-sb-selected" : "")).trim();
+            props.className = ((props.className || "") + " iso-sb-row" + (selected ? " iso-sb-selected" : "")).trim();
             // The Mac's selected row in a focused sidebar (its selected
             // content colour), not the plain system blue.
-            if (selected) s.background = "var(--uui-mac-selection)";
+            if (selected) s.background = "var(--iso-mac-selection)";
           } else {
             // The platform's row metrics, unless the app set its own:
             // `.listRowInsets` on the row ("top,leading,bottom,trailing"),
@@ -3681,8 +3720,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             s.padding = `${rowInsets[0]}px ${rowInsets[3]}px ${rowInsets[2]}px ${rowInsets[1]}px`;
             // The separator runs under the content, from its leading inset
             // to its trailing one, as iOS draws it.
-            s["--uui-sep-l"] = `${rowInsets[1]}px`;
-            s["--uui-sep-r"] = `${rowInsets[3]}px`;
+            s["--iso-sep-l"] = `${rowInsets[1]}px`;
+            s["--iso-sep-r"] = `${rowInsets[3]}px`;
             // iOS 26's inset-grouped rows are 52pt at the least.
             s.minHeight = currentListMinRowHeight != null ? currentListMinRowHeight : currentListStyle === "insetGrouped" ? 52 : 44;
             s.boxSizing = "border-box";
@@ -3690,13 +3729,13 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             if (currentListStyle === "insetGrouped") {
               // Selected, the cell is the system blue with its text white, as
               // an iPad's inset-grouped sidebar has it.
-              props.className = ((props.className || "") + " uui-ig-row" + (separators ? "" : " uui-no-sep")
-                + (selected && !ownBg ? " uui-ig-selected" : "")).trim();
-              if (selected && !ownBg) s.background = "var(--uui-tint, #0a84ff)";
+              props.className = ((props.className || "") + " iso-ig-row" + (separators ? "" : " iso-no-sep")
+                + (selected && !ownBg ? " iso-ig-selected" : "")).trim();
+              if (selected && !ownBg) s.background = "var(--iso-tint, #0a84ff)";
             } else if (currentListStyle === "plain") {
               // Messages' inbox: the row on the page, a hairline from the
               // text column, a gray highlight for the selected row.
-              props.className = ((props.className || "") + " uui-plain-row" + (separators ? "" : " uui-no-sep")).trim();
+              props.className = ((props.className || "") + " iso-plain-row" + (separators ? "" : " iso-no-sep")).trim();
               if (selected && !ownBg) s.background = "rgba(120,120,128,0.22)";
             } else {
               if (separators) s.borderBottom = "1px solid rgba(120,120,128,0.2)";
@@ -3708,13 +3747,13 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           if (currentListStyle === "insetGrouped") {
             // A header-less section's header is only the gap before it.
             const empty = !(n.ch || []).some((c) => c.k !== "box" || (c.ch || []).length);
-            props.className = ((props.className || "") + " uui-ig-header" + (empty ? " uui-ig-gap" : "")).trim();
+            props.className = ((props.className || "") + " iso-ig-header" + (empty ? " iso-ig-gap" : "")).trim();
           }
-          else if (currentListStyle === "sidebar") props.className = ((props.className || "") + " uui-sb-header").trim();
+          else if (currentListStyle === "sidebar") props.className = ((props.className || "") + " iso-sb-header").trim();
           else if (currentListStyle === "plain" && !(n.ch || []).some((c) => c.k !== "box" || (c.ch || []).length)) {
             // A plain list's header-less section runs on from the one before
             // it, as an iPhone's does: no gap.
-            props.className = ((props.className || "") + " uui-plain-gap").trim();
+            props.className = ((props.className || "") + " iso-plain-gap").trim();
           }
         }
         // A GeometryReader wrapper: measure the box the host actually laid

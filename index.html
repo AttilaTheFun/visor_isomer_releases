@@ -22,19 +22,19 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js?v=2772602950"></script>
-  <script src="./runtime/react-dom.production.min.js?v=2772602950"></script>
+  <script src="./runtime/react.production.min.js?v=1597642287"></script>
+  <script src="./runtime/react-dom.production.min.js?v=1597642287"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
-      let box = document.getElementById("uui-error");
-      if (!box) { box = document.createElement("pre"); box.id = "uui-error"; box.style.cssText = "position:fixed;left:8px;right:8px;bottom:8px;max-height:40%;overflow:auto;margin:0;padding:10px;font:12px monospace;color:#fff;background:#b00;border-radius:8px;z-index:2000;white-space:pre-wrap"; document.body.appendChild(box); }
+      let box = document.getElementById("iso-error");
+      if (!box) { box = document.createElement("pre"); box.id = "iso-error"; box.style.cssText = "position:fixed;left:8px;right:8px;bottom:8px;max-height:40%;overflow:auto;margin:0;padding:10px;font:12px monospace;color:#fff;background:#b00;border-radius:8px;z-index:2000;white-space:pre-wrap"; document.body.appendChild(box); }
       box.textContent += message + "\n";
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js?v=2772602950";
-    import { Dependencies } from "./app_bridge.js?v=2772602950";
+    import { boot } from "./runtime/boot.js?v=1597642287";
+    import { Dependencies } from "./app_bridge.js?v=1597642287";
 
     // --- The client's services (libraries/visor_services), in the browser ---
 
@@ -228,7 +228,7 @@
       settings: Dependencies.settingsBridge(() => settings),
       cache: Dependencies.cacheBridge(() => cache),
     };
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=2772602950", rendererName: "react", dependencies, documentScroll: true })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=1597642287", rendererName: "react", dependencies, documentScroll: true })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>

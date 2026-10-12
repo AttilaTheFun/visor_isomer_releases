@@ -101,7 +101,7 @@ export function browserPlatformServices(Dependencies, options = {}) {
       async redirectURI() { return location.origin + (options.oauthCallbackPath || "/oauth/callback"); },
       authorize(url) {
         return new Promise((resolve, reject) => {
-          const popup = window.open(url, "uui-oauth", "width=520,height=680");
+          const popup = window.open(url, "iso-oauth", "width=520,height=680");
           if (!popup) { reject(new Error("popup blocked")); return; }
           const prefix = location.origin + (options.oauthCallbackPath || "/oauth/callback");
           const finish = (query) => { window.removeEventListener("message", onMessage); clearInterval(poll); try { popup.close(); } catch (_) {} resolve(query.replace(/^\?/, "")); };

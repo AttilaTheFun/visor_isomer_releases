@@ -1,9 +1,9 @@
 // Files the person picked or dropped, where the wasm build's Foundation can
-// read them: an in-memory, read-only directory preopened as /tmp/uui-import
+// read them: an in-memory, read-only directory preopened as /tmp/iso-import
 // behind the WASI file calls, so `Data(contentsOf: url)` works on the web as
 // it does on Android (the app's cache directory) and Apple.
 
-const ROOT = "/tmp/uui-import";
+const ROOT = "/tmp/iso-import";
 const PREOPEN_FD = 3;
 const SUCCESS = 0, EBADF = 8, ENOENT = 44, EROFS = 69, EINVAL = 28;
 const FILETYPE_DIRECTORY = 3, FILETYPE_REGULAR = 4;
@@ -14,7 +14,7 @@ let nextFD = 100;
 let serial = 0;
 
 /** Stores `fileList` (a FileList or File[]); resolves to the absolute paths
- *  Swift reads them at ("/tmp/uui-import/<n>/<name>"). */
+ *  Swift reads them at ("/tmp/iso-import/<n>/<name>"). */
 export async function storeFiles(fileList) {
   const paths = [];
   for (const file of Array.from(fileList || [])) {

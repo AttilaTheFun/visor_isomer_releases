@@ -12,9 +12,9 @@
 //
 // The shared runtime (swift_ffi/runtime/ts) is staged next to this file
 // by the wasm library macro; bridges in one directory share the one copy.
-import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=2772602950";
+import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=1597642287";
 // Re-exported so consumers keep importing them from this module.
-export { Types } from "./swift_ffi_runtime.js?v=2772602950";
+export { Types } from "./swift_ffi_runtime.js?v=1597642287";
 /** The runtime type token for `TextMetrics` (generic calls). */
 export const TextMetricsType = {
     encode(w, v) {
@@ -603,228 +603,110 @@ export function makeDispatcher_DictationBridge(impl, runtime) {
         throw new SwiftError("unknown DictationBridge method ordinal");
     };
 }
-export class SwiftGPUWebHost {
+export class SwiftMetalWebHost {
     handle;
     runtime;
     /** @internal Takes ownership of a +1 handle. */
     constructor(runtime, handle) {
         this.runtime = runtime;
         this.handle = handle;
-        registry.register(this, () => runtime.call("swift_ffi_GPUWebHost_release", handle), this);
+        registry.register(this, () => runtime.call("swift_ffi_MetalWebHost_release", handle), this);
     }
     /** @internal */
     borrowHandle() {
         if (this.handle === 0)
-            throw new Error("GPUWebHost used after close()");
+            throw new Error("MetalWebHost used after close()");
         return this.handle;
     }
     /** Releases the underlying Swift instance. Idempotent. */
     close() {
         if (this.handle !== 0) {
             registry.unregister(this);
-            this.runtime.call("swift_ffi_GPUWebHost_release", this.handle);
+            this.runtime.call("swift_ffi_MetalWebHost_release", this.handle);
             this.handle = 0;
         }
     }
     [Symbol.dispose]() {
         this.close();
     }
-    gpuCreateTexture(id, width, height, rgba) {
+    metalPerform(commands, token) {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
-        Types.int32.encode(w, id);
-        Types.int32.encode(w, width);
-        Types.int32.encode(w, height);
-        Types.bytes.encode(w, rgba);
+        Types.bytes.encode(w, commands);
+        Types.int32.encode(w, token);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 0, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_MetalWebHost_invoke", handle, 0, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
         if (failure !== null)
             throw new SwiftError(failure);
     }
-    gpuDestroyTexture(id) {
+    metalSurfaceWidth(surface) {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
-        Types.int32.encode(w, id);
+        Types.int32.encode(w, surface);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 1, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_MetalWebHost_invoke", handle, 1, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
         if (failure !== null)
             throw new SwiftError(failure);
+        return decodeWith(Types.int32, result);
     }
-    gpuBeginFrame(red, green, blue, alpha) {
+    metalSurfaceHeight(surface) {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
-        Types.double.encode(w, red);
-        Types.double.encode(w, green);
-        Types.double.encode(w, blue);
-        Types.double.encode(w, alpha);
+        Types.int32.encode(w, surface);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 2, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_MetalWebHost_invoke", handle, 2, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
         if (failure !== null)
             throw new SwiftError(failure);
+        return decodeWith(Types.int32, result);
     }
-    gpuSetTransform(matrix) {
+    metalAdapterName() {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
-        Types.bytes.encode(w, matrix);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 3, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_MetalWebHost_invoke", handle, 3, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
         if (failure !== null)
             throw new SwiftError(failure);
-    }
-    gpuDrawTextured(id, vertices) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.int32.encode(w, id);
-        Types.bytes.encode(w, vertices);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 4, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-    gpuDrawColor(vertices) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.bytes.encode(w, vertices);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 5, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-    gpuDrawRects(vertices) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.bytes.encode(w, vertices);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 6, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-    gpuSetScissor(x, y, width, height) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.int32.encode(w, x);
-        Types.int32.encode(w, y);
-        Types.int32.encode(w, width);
-        Types.int32.encode(w, height);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 7, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-    gpuClearScissor() {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 8, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-    gpuEndFrame() {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 9, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
+        return decodeWith(Types.string, result);
     }
 }
-/** Wraps a consumer-implemented `GPUWebHost` as the ordinal
+/** Wraps a consumer-implemented `MetalWebHost` as the ordinal
  * dispatcher Swift's foreign proxy calls (method ordinal leads the
  * arguments). */
-export function makeDispatcher_GPUWebHost(impl, runtime) {
+export function makeDispatcher_MetalWebHost(impl, runtime) {
     return (args) => {
         const r = new BlobReader(args);
         switch (Types.int32.decode(r)) {
             case 0: {
-                const a0 = Types.int32.decode(r);
+                const a0 = Types.bytes.decode(r);
                 const a1 = Types.int32.decode(r);
-                const a2 = Types.int32.decode(r);
-                const a3 = Types.bytes.decode(r);
-                impl.gpuCreateTexture(a0, a1, a2, a3);
+                impl.metalPerform(a0, a1);
                 return new Uint8Array(0);
             }
             case 1: {
                 const a0 = Types.int32.decode(r);
-                impl.gpuDestroyTexture(a0);
-                return new Uint8Array(0);
+                return encodeWith(Types.int32, impl.metalSurfaceWidth(a0));
             }
             case 2: {
-                const a0 = Types.double.decode(r);
-                const a1 = Types.double.decode(r);
-                const a2 = Types.double.decode(r);
-                const a3 = Types.double.decode(r);
-                impl.gpuBeginFrame(a0, a1, a2, a3);
-                return new Uint8Array(0);
+                const a0 = Types.int32.decode(r);
+                return encodeWith(Types.int32, impl.metalSurfaceHeight(a0));
             }
             case 3: {
-                const a0 = Types.bytes.decode(r);
-                impl.gpuSetTransform(a0);
-                return new Uint8Array(0);
-            }
-            case 4: {
-                const a0 = Types.int32.decode(r);
-                const a1 = Types.bytes.decode(r);
-                impl.gpuDrawTextured(a0, a1);
-                return new Uint8Array(0);
-            }
-            case 5: {
-                const a0 = Types.bytes.decode(r);
-                impl.gpuDrawColor(a0);
-                return new Uint8Array(0);
-            }
-            case 6: {
-                const a0 = Types.bytes.decode(r);
-                impl.gpuDrawRects(a0);
-                return new Uint8Array(0);
-            }
-            case 7: {
-                const a0 = Types.int32.decode(r);
-                const a1 = Types.int32.decode(r);
-                const a2 = Types.int32.decode(r);
-                const a3 = Types.int32.decode(r);
-                impl.gpuSetScissor(a0, a1, a2, a3);
-                return new Uint8Array(0);
-            }
-            case 8: {
-                impl.gpuClearScissor();
-                return new Uint8Array(0);
-            }
-            case 9: {
-                impl.gpuEndFrame();
-                return new Uint8Array(0);
+                return encodeWith(Types.string, impl.metalAdapterName());
             }
         }
-        throw new SwiftError("unknown GPUWebHost method ordinal");
+        throw new SwiftError("unknown MetalWebHost method ordinal");
     };
 }
 export class SwiftWebHost {
@@ -1232,15 +1114,15 @@ export const Dependencies = {
             },
         };
     },
-    gPUWebHost: (provide, lazy = true) => {
+    metalWebHost: (provide, lazy = true) => {
         let impl;
         return {
-            key: "swift_ffi_GPUWebHost",
+            key: "swift_ffi_MetalWebHost",
             lazy,
             dispatcher: (args, runtime) => {
                 if (!impl)
                     impl = provide();
-                return makeDispatcher_GPUWebHost(impl, runtime)(args);
+                return makeDispatcher_MetalWebHost(impl, runtime)(args);
             },
         };
     },
@@ -1269,82 +1151,92 @@ export class SwiftUI {
         const f2 = settings instanceof SwiftSettingsBridge ? [settings.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_SettingsBridge(settings, () => this.runtime))];
         this.runtime.call("swift_ffi_visor_installVisorBridges", f0[0], f0[1], f1[0], f1[1], f2[0], f2[1]);
     }
-    gpuConnect(host) {
-        const f0 = host instanceof SwiftGPUWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_GPUWebHost(host, () => this.runtime))];
-        this.runtime.call("swift_ffi_gpuConnect", f0[0], f0[1]);
+    metalConnect(host) {
+        const f0 = host instanceof SwiftMetalWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_MetalWebHost(host, () => this.runtime))];
+        this.runtime.call("swift_ffi_metalConnect", f0[0], f0[1]);
     }
-    uuiSetDisplayScale(scale) {
-        this.runtime.call("swift_ffi_uuiSetDisplayScale", scale);
-    }
-    uuiStart(host, renderer, width, height) {
-        const f0 = host instanceof SwiftWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_WebHost(host, () => this.runtime))];
-        const b1 = stageString(this.runtime, renderer);
-        this.runtime.call("swift_ffi_uuiStart", f0[0], f0[1], b1.ptr, b1.len, width, height);
+    metalCompleted(token, readback) {
+        const b1 = stageBytes(this.runtime, readback);
+        this.runtime.call("swift_ffi_metalCompleted", token, b1.ptr, b1.len);
         b1.drop();
     }
-    uuiRender() {
-        this.runtime.call("swift_ffi_uuiRender");
+    isoSetDisplayScale(scale) {
+        this.runtime.call("swift_ffi_isoSetDisplayScale", scale);
     }
-    uuiMapSurfaceRender(id, camera, annotations, polygons, polylines, width, height) {
+    isoStart(host, renderer, width, height) {
+        const f0 = host instanceof SwiftWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_WebHost(host, () => this.runtime))];
+        const b1 = stageString(this.runtime, renderer);
+        this.runtime.call("swift_ffi_isoStart", f0[0], f0[1], b1.ptr, b1.len, width, height);
+        b1.drop();
+    }
+    isoRender() {
+        this.runtime.call("swift_ffi_isoRender");
+    }
+    isoMapSurfaceRender(id, camera, annotations, polygons, polylines, width, height) {
         const b0 = stageString(this.runtime, id);
         const b1 = stageString(this.runtime, camera);
         const b2 = stageString(this.runtime, annotations);
         const b3 = stageString(this.runtime, polygons);
         const b4 = stageString(this.runtime, polylines);
-        this.runtime.call("swift_ffi_uuiMapSurfaceRender", b0.ptr, b0.len, b1.ptr, b1.len, b2.ptr, b2.len, b3.ptr, b3.len, b4.ptr, b4.len, width, height);
+        this.runtime.call("swift_ffi_isoMapSurfaceRender", b0.ptr, b0.len, b1.ptr, b1.len, b2.ptr, b2.len, b3.ptr, b3.len, b4.ptr, b4.len, width, height);
         b0.drop();
         b1.drop();
         b2.drop();
         b3.drop();
         b4.drop();
     }
-    uuiSetScenePhase(phase) {
+    isoSetScenePhase(phase) {
         const b0 = stageString(this.runtime, phase);
-        this.runtime.call("swift_ffi_uuiSetScenePhase", b0.ptr, b0.len);
+        this.runtime.call("swift_ffi_isoSetScenePhase", b0.ptr, b0.len);
         b0.drop();
     }
-    uuiSetColorScheme(dark) {
-        this.runtime.call("swift_ffi_uuiSetColorScheme", dark ? 1 : 0);
+    isoSetColorScheme(dark) {
+        this.runtime.call("swift_ffi_isoSetColorScheme", dark ? 1 : 0);
     }
-    uuiOpenURL(url) {
+    isoOpenURL(url) {
         const b0 = stageString(this.runtime, url);
-        this.runtime.call("swift_ffi_uuiOpenURL", b0.ptr, b0.len);
+        this.runtime.call("swift_ffi_isoOpenURL", b0.ptr, b0.len);
         b0.drop();
     }
-    uuiPointerEvent(kind, x, y) {
-        this.runtime.call("swift_ffi_uuiPointerEvent", kind, x, y);
+    isoPointerEvent(kind, x, y) {
+        this.runtime.call("swift_ffi_isoPointerEvent", kind, x, y);
     }
-    uuiWheelEvent(x, y, deltaX, deltaY) {
-        this.runtime.call("swift_ffi_uuiWheelEvent", x, y, deltaX, deltaY);
+    isoWheelEvent(x, y, deltaX, deltaY) {
+        this.runtime.call("swift_ffi_isoWheelEvent", x, y, deltaX, deltaY);
     }
-    uuiResize(width, height) {
-        this.runtime.call("swift_ffi_uuiResize", width, height);
+    isoResize(width, height) {
+        this.runtime.call("swift_ffi_isoResize", width, height);
     }
-    uuiTextChanged(text) {
+    isoTextChanged(text) {
         const b0 = stageString(this.runtime, text);
-        this.runtime.call("swift_ffi_uuiTextChanged", b0.ptr, b0.len);
+        this.runtime.call("swift_ffi_isoTextChanged", b0.ptr, b0.len);
         b0.drop();
     }
-    uuiTextSubmitted() {
-        this.runtime.call("swift_ffi_uuiTextSubmitted");
+    isoTextSubmitted() {
+        this.runtime.call("swift_ffi_isoTextSubmitted");
     }
-    uuiTextEnded() {
-        this.runtime.call("swift_ffi_uuiTextEnded");
+    isoTextEnded() {
+        this.runtime.call("swift_ffi_isoTextEnded");
     }
-    uuiHostEvent(id, value) {
+    isoHostEvent(id, value) {
         const b0 = stageString(this.runtime, id);
         const b1 = stageString(this.runtime, value);
-        this.runtime.call("swift_ffi_uuiHostEvent", b0.ptr, b0.len, b1.ptr, b1.len);
+        this.runtime.call("swift_ffi_isoHostEvent", b0.ptr, b0.len, b1.ptr, b1.len);
         b0.drop();
         b1.drop();
     }
-    uuiKeyEvent(id, value) {
+    isoKeyEvent(id, value) {
         const b0 = stageString(this.runtime, id);
         const b1 = stageString(this.runtime, value);
-        const r = this.runtime.call("swift_ffi_uuiKeyEvent", b0.ptr, b0.len, b1.ptr, b1.len);
+        const r = this.runtime.call("swift_ffi_isoKeyEvent", b0.ptr, b0.len, b1.ptr, b1.len);
         b0.drop();
         b1.drop();
         return r !== 0;
+    }
+    isoMetalViewFrame(token, surface) {
+        const b0 = stageString(this.runtime, token);
+        this.runtime.call("swift_ffi_isoMetalViewFrame", b0.ptr, b0.len, surface);
+        b0.drop();
     }
 }
 /** Instantiates the reactor and returns the bridged API. `wasi`
@@ -1430,7 +1322,7 @@ export async function load(wasm, options) {
     runtime.call("swift_ffi_visor_register_SettingsBridge");
     runtime.call("swift_ffi_visor_register_CacheBridge");
     runtime.call("swift_ffi_visor_register_DictationBridge");
-    runtime.call("swift_ffi_register_GPUWebHost");
+    runtime.call("swift_ffi_register_MetalWebHost");
     runtime.call("swift_ffi_register_WebHost");
     return new SwiftUI(runtime);
 }
