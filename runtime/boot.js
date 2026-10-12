@@ -4,11 +4,11 @@
 // the runtime. Strings and structs copy at the boundary, so there is no
 // pointer/length or staging-buffer plumbing here.
 
-import { importedFilesWasi } from "./imported_files.js?v=1597642287";
-import { load } from "../app_bridge.js?v=1597642287";
-import { createRasterHost, registerImageBytes } from "./raster.js?v=1597642287";
-import { createReactTreeRenderer } from "./react_renderer.js?v=1597642287";
-import { applyPatch } from "./flat_tree.js?v=1597642287";
+import { importedFilesWasi } from "./imported_files.js?v=1317694784";
+import { load } from "../app_bridge.js?v=1317694784";
+import { createRasterHost, registerImageBytes } from "./raster.js?v=1317694784";
+import { createReactTreeRenderer } from "./react_renderer.js?v=1317694784";
+import { applyPatch } from "./flat_tree.js?v=1317694784";
 
 // `rendererName` picks the renderer (docs/renderer_layers.md): "webGPU"
 // (default) binds the self-drawing SwiftGPURenderer; "react" binds the
@@ -56,7 +56,7 @@ export async function boot({
     // static import would put the Metal executor on EVERY page's critical
     // module graph (an unresolved ES module import evaluates NOTHING —
     // rendering as a silent blank page when the file isn't served).
-    const { createIsomerMetalHost } = await import("./isomer_metal_webgpu.js?v=1597642287");
+    const { createIsomerMetalHost } = await import("./isomer_metal_webgpu.js?v=1317694784");
     gpuHost = await createIsomerMetalHost(canvas);
     raster = createRasterHost({
       scale: window.devicePixelRatio || 1,
@@ -78,7 +78,7 @@ export async function boot({
   async function ensureMetalHost() {
     if (gpuHost) return gpuHost;
     metalHostStarting ??= (async () => {
-      const { createIsomerMetalHost } = await import("./isomer_metal_webgpu.js?v=1597642287");
+      const { createIsomerMetalHost } = await import("./isomer_metal_webgpu.js?v=1317694784");
       gpuHost = await createIsomerMetalHost(canvas);
       gpuHost.connect(bridge);
       bridge.isoSetDisplayScale(window.devicePixelRatio || 1);
@@ -663,7 +663,7 @@ export async function mountIsomer(container, { wasmURL, bundle, renderer = "webG
   container.appendChild(canvas);
 
   const result = await boot({
-    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=1597642287"),
+    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=1317694784"),
     bundle, rendererName: renderer, embedded: true, dependencies, wasi,
   });
 
