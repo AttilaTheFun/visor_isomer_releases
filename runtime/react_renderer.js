@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=1183905032";
-import { SYMBOLS } from "./symbols.js?v=1183905032";
-import { storeFiles } from "./imported_files.js?v=1183905032";
+import { resolveImageSource } from "./raster.js?v=2772602950";
+import { SYMBOLS } from "./symbols.js?v=2772602950";
+import { storeFiles } from "./imported_files.js?v=2772602950";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -136,6 +136,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       ".uui-ig-row:first-child,.uui-ig-header+.uui-ig-row{border-top-left-radius:26px;border-top-right-radius:26px}" +
       ".uui-ig-row:last-child,.uui-ig-row:has(+ .uui-ig-header){border-bottom-left-radius:26px;border-bottom-right-radius:26px}" +
       ".uui-ig-row:last-child::after,.uui-ig-row:has(+ .uui-ig-header)::after{display:none}" +
+      ".uui-ig-selected,.uui-ig-selected *{color:#fff!important}" +
+      ".uui-ig-selected::after,.uui-ig-row:has(+ .uui-ig-selected)::after{display:none}" +
       // Headers as iOS 26 draws them: sentence case, secondary, a step
       // smaller than the rows.
       ".uui-ig-header{padding:22px 16px 8px;font-size:15px;color:rgba(120,120,128,0.95)}" +
@@ -143,6 +145,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       // sections without one.
       ".uui-ig-header:first-child{padding-top:0!important}" +
       ".uui-ig-gap{padding:0!important;height:36px;min-height:36px}" +
+      ".uui-plain-gap{padding:0!important;height:0;min-height:0!important;overflow:hidden}" +
       // Sheet content spans the panel; its own stacks keep their alignment.
       ".uui-sheet-body>*{align-self:stretch}" +
       ".uui-principal button{color:inherit}" +
@@ -195,7 +198,9 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       ".uui-mac-form-footer *{font-size:12px!important;line-height:16px!important}" +
       // A grouped cell's fill, for a list outside a grouped container too
       // (the fallback used to be white, which flashed in dark mode).
-      ":root{--uui-cell-bg:#fff;--uui-separator:rgba(60,60,67,0.29);--uui-ig-sep:rgba(60,60,67,0.12)}" +
+      ":root{--uui-cell-bg:#fff;--uui-separator:rgba(60,60,67,0.29);--uui-ig-sep:rgba(60,60,67,0.12);--uui-mac-selection:#0064e1}" +
+      "@media (prefers-color-scheme: dark){:root{--uui-mac-selection:#0058d0}}" +
+      "html[data-theme=dark]{--uui-mac-selection:#0058d0}html[data-theme=light]{--uui-mac-selection:#0064e1}" +
       "@media (prefers-color-scheme: dark){:root{--uui-cell-bg:#1c1c1e;--uui-separator:rgba(84,84,88,0.65);--uui-ig-sep:rgba(84,84,88,0.6)}}" +
       "@media (min-width: 700px){:root{--uui-ig-sep:rgba(60,60,67,0.18)}}" +
       "@media (min-width: 700px) and (prefers-color-scheme: dark){:root{--uui-ig-sep:rgba(255,255,255,0.1)}}" +
@@ -203,6 +208,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       ".uui-plain-row{position:relative}" +
       ".uui-plain-row::after{content:'';position:absolute;left:16px;right:0;bottom:0;height:1px;background:rgba(120,120,128,0.3)}" +
       ".uui-plain-row:last-child::after{display:none}" +
+      // An iPhone's plain list stops its lines short of the trailing edge.
+      "@media (max-width: 699px){.uui-plain-row::after{right:16px}}" +
       // The page is the app's ground: black or white, the safe areas too.
       "body{background:#fff;color-scheme:light dark}" +
       "@media (prefers-color-scheme: dark){body{background:#000}}" +
@@ -382,7 +389,7 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     // A Label in an iPhone's inset-grouped row: its icon in a column of its
     // own and the title on the row's text line, the icon in the accent
     // colour.
-    if (params.label === "1" && inListCell && !isDesktop() && currentListStyle === "insetGrouped") {
+    if (params.label === "1" && inListCell && !isDesktop() && (currentListStyle === "insetGrouped" || currentListStyle === "plain")) {
       // (Only an icon whose colour is left to its container: a style set
       // around the label, a destructive button's red, keep theirs.)
       const icon = (n.ch || [])[0];
@@ -3663,7 +3670,9 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             s.padding = "5px 10px"; s.minHeight = 28; s.margin = "1px 10px"; s.borderRadius = 6; s.width = "calc(100% - 20px)"; s.alignSelf = "flex-start";
             s.boxSizing = "border-box"; s.justifyContent = "center"; s.fontSize = 13;
             props.className = ((props.className || "") + " uui-sb-row" + (selected ? " uui-sb-selected" : "")).trim();
-            if (selected) s.background = "var(--uui-tint, #0a84ff)";
+            // The Mac's selected row in a focused sidebar (its selected
+            // content colour), not the plain system blue.
+            if (selected) s.background = "var(--uui-mac-selection)";
           } else {
             // The platform's row metrics, unless the app set its own:
             // `.listRowInsets` on the row ("top,leading,bottom,trailing"),
@@ -3679,8 +3688,11 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             s.boxSizing = "border-box";
             s.justifyContent = "center";
             if (currentListStyle === "insetGrouped") {
-              props.className = ((props.className || "") + " uui-ig-row" + (separators ? "" : " uui-no-sep")).trim();
-              if (selected && !ownBg) s.background = "rgba(10,132,255,0.18)";
+              // Selected, the cell is the system blue with its text white, as
+              // an iPad's inset-grouped sidebar has it.
+              props.className = ((props.className || "") + " uui-ig-row" + (separators ? "" : " uui-no-sep")
+                + (selected && !ownBg ? " uui-ig-selected" : "")).trim();
+              if (selected && !ownBg) s.background = "var(--uui-tint, #0a84ff)";
             } else if (currentListStyle === "plain") {
               // Messages' inbox: the row on the page, a hairline from the
               // text column, a gray highlight for the selected row.
@@ -3699,6 +3711,11 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
             props.className = ((props.className || "") + " uui-ig-header" + (empty ? " uui-ig-gap" : "")).trim();
           }
           else if (currentListStyle === "sidebar") props.className = ((props.className || "") + " uui-sb-header").trim();
+          else if (currentListStyle === "plain" && !(n.ch || []).some((c) => c.k !== "box" || (c.ch || []).length)) {
+            // A plain list's header-less section runs on from the one before
+            // it, as an iPhone's does: no gap.
+            props.className = ((props.className || "") + " uui-plain-gap").trim();
+          }
         }
         // A GeometryReader wrapper: measure the box the host actually laid
         // out and report it back ("<w>x<h>" on the `.geo` id), so the guest
