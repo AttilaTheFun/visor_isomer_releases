@@ -14,15 +14,19 @@
 // Uses the page's React (`window.React`, the same UMD global the tree renderer
 // uses), so the host app and the embedded surface share one React.
 //
-//   const { Isomer } = await import("./runtime/react_embed.js?v=1317694784");
-//   <Isomer wasmURL="./app.wasm?v=1317694784" renderer="react" style={{ height: 480 }} />
+//   const { Isomer } = await import("./runtime/react_embed.js?v=424758886");
+//   <Isomer wasmURL="./app.wasm?v=424758886" renderer="react" style={{ height: 480 }} />
 //   // or, with hot reload / dynamic delivery:
-//   <Isomer provider={appBundleProvider("./app.wasm?v=1317694784", { hotReloadURL })} />
+//   <Isomer provider={appBundleProvider("./app.wasm?v=424758886", { hotReloadURL })} />
 
-import { mountIsomer } from "./boot.js?v=1317694784";
-import { packagedBundleProvider } from "./bundle_provider.js?v=1317694784";
+import { mountIsomer } from "./boot.js?v=424758886";
+import { packagedBundleProvider } from "./bundle_provider.js?v=424758886";
 
-export function Isomer({ provider, wasmURL = "./app.wasm?v=1317694784", renderer = "react", style }) {
+// `bundleIdentifier` names the app on the origin (boot.js): its files are
+// kept under it, and a new bundle finds them as the last one left them.
+// `fetch` and `WebSocket`, when given, are what the app's URLSession sends
+// through instead of the browser's (boot.js).
+export function Isomer({ provider, wasmURL = "./app.wasm?v=424758886", renderer = "react", bundleIdentifier, fetch, WebSocket, style }) {
   const R = window.React;
   const ref = R.useRef(null);
   R.useEffect(() => {
@@ -34,7 +38,7 @@ export function Isomer({ provider, wasmURL = "./app.wasm?v=1317694784", renderer
       // The initial bundle renders first.
       const initial = await source.initialBundle();
       if (cancelled || !ref.current) return;
-      mounted = await mountIsomer(ref.current, { bundle: initial, renderer });
+      mounted = await mountIsomer(ref.current, { bundle: initial, renderer, bundleIdentifier, fetch, WebSocket });
 
       // Newer bundles (hot-reload shadow, dynamic-delivery update) swap in by
       // tearing down and re-instantiating the surface — the web has no
@@ -43,7 +47,7 @@ export function Isomer({ provider, wasmURL = "./app.wasm?v=1317694784", renderer
       for await (const next of source.bundleUpdates()) {
         if (cancelled || !ref.current) break;
         if (mounted) mounted.unmount();
-        mounted = await mountIsomer(ref.current, { bundle: next, renderer });
+        mounted = await mountIsomer(ref.current, { bundle: next, renderer, bundleIdentifier, fetch, WebSocket });
       }
     })();
 
@@ -51,7 +55,7 @@ export function Isomer({ provider, wasmURL = "./app.wasm?v=1317694784", renderer
       cancelled = true;
       if (mounted) mounted.unmount();
     };
-  }, [provider, wasmURL, renderer]);
+  }, [provider, wasmURL, renderer, bundleIdentifier]);
 
   return R.createElement("div", {
     ref,

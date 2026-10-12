@@ -18,16 +18,40 @@
 // (dependency lookups answer "absent"); a v3 reactor that never touches
 // `dependencies[...]` runs exactly as it does under a host without DI.
 
-import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=1317694784";
-import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=1317694784";
-import { applyPatch } from "./runtime/flat_tree.js?v=1317694784";
+import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=424758886";
+import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=424758886";
+import { applyPatch } from "./runtime/flat_tree.js?v=424758886";
+import { appFilesKey, openAppFiles } from "./runtime/file_system.js?v=424758886";
+import { browserNetworkHosts } from "./runtime/network.js?v=424758886";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 
+/** Foundation's networking (runtime/network.js) for a bundle on the full
+ *  SwiftUI, whose HotBridge installs what is injected under `isomerHTTP` and
+ *  `isomerWebSocket` (a bundle on the slim one never asks). The hosts are
+ *  wrapped with the generated builders of the bindings beside this file
+ *  (app_bridge.js, where isomer_web_app and the Playground's sites put
+ *  them): IsomerNetworkHost's are the same in every reactor's bindings.
+ *  None without them. */
+async function pageNetworkHosts(options) {
+  try {
+    const { Dependencies } = await import("./app_bridge.js?v=424758886");
+    return browserNetworkHosts(Dependencies, options);
+  } catch (_) {
+    return {};
+  }
+}
+
 /** Instantiates `wasm` (bytes or a compiled Module) and mounts the feature
- *  into `container`. Returns { resize(w, h), setColorScheme(dark), stop() }. */
-export async function runHotBundle({ wasm, container, dependencies = {}, onLog = null, onStatus = null }) {
+ *  into `container`. Returns { resize(w, h), setColorScheme(dark), stop() }.
+ *  The feature's files (file_system.js) are kept under `bundleIdentifier`,
+ *  else under the page's path; a bundle run again on the page finds them as
+ *  the last one left them. */
+export async function runHotBundle({ wasm, container, dependencies = {}, bundleIdentifier = undefined, fetch = undefined, WebSocket = undefined, onLog = null, onStatus = null }) {
+  const files = await openAppFiles(appFilesKey(bundleIdentifier));
+  // The page's own entries replace the network hosts, as under boot.js.
+  dependencies = { ...(await pageNetworkHosts({ fetch, WebSocket })), ...dependencies };
   let memory = null;
   let exports = null;
   let retainedTree = null;
@@ -159,7 +183,9 @@ export async function runHotBundle({ wasm, container, dependencies = {}, onLog =
     wasi_snapshot_preview1: wasiShim(() => {
       if (!memory) throw new Error("wasm memory accessed before instantiation");
       return memory;
-    }),
+    }, (getMemory, builtins) => files.wasi(getMemory, builtins, {
+      environment: bundleIdentifier ? { ISOMER_BUNDLE_IDENTIFIER: bundleIdentifier } : {},
+    })),
   };
 
   const module =
@@ -216,6 +242,7 @@ export async function runHotBundle({ wasm, container, dependencies = {}, onLog =
     stop() {
       window.removeEventListener("resize", onResize);
       exports = null;
+      files.flush();
     },
   };
 }

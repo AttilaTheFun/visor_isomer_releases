@@ -92,7 +92,6 @@ const WASI_SUCCESS = 0;
 const WASI_EBADF = 8;
 const WASI_ENOSYS = 52;
 export function wasiShim(getMemory, overridesOrFactory = {}) {
-    const overrides = typeof overridesOrFactory === "function" ? overridesOrFactory(getMemory) : overridesOrFactory;
     const view = () => new DataView(getMemory().buffer);
     // Guest stdout/stderr, buffered to newlines per fd.
     const lineBuffers = new Map();
@@ -107,7 +106,7 @@ export function wasiShim(getMemory, overridesOrFactory = {}) {
         }
         lineBuffers.set(fd, buffered);
     };
-    const known = {
+    const builtins = {
         args_sizes_get: (argc, argvBufSize) => {
             view().setUint32(argc, 0, true);
             view().setUint32(argvBufSize, 0, true);
@@ -181,8 +180,11 @@ export function wasiShim(getMemory, overridesOrFactory = {}) {
             }
             return WASI_SUCCESS;
         },
-        ...overrides,
     };
+    const overrides = typeof overridesOrFactory === "function"
+        ? overridesOrFactory(getMemory, builtins)
+        : overridesOrFactory;
+    const known = { ...builtins, ...overrides };
     return new Proxy(known, {
         get: (target, name) => target[name] ?? (() => WASI_ENOSYS),
     });

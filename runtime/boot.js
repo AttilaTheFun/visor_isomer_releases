@@ -4,11 +4,12 @@
 // the runtime. Strings and structs copy at the boundary, so there is no
 // pointer/length or staging-buffer plumbing here.
 
-import { importedFilesWasi } from "./imported_files.js?v=1317694784";
-import { load } from "../app_bridge.js?v=1317694784";
-import { createRasterHost, registerImageBytes } from "./raster.js?v=1317694784";
-import { createReactTreeRenderer } from "./react_renderer.js?v=1317694784";
-import { applyPatch } from "./flat_tree.js?v=1317694784";
+import { appFilesKey, openAppFiles } from "./file_system.js?v=424758886";
+import { Dependencies, load } from "../app_bridge.js?v=424758886";
+import { browserNetworkHosts } from "./network.js?v=424758886";
+import { createRasterHost, registerImageBytes } from "./raster.js?v=424758886";
+import { createReactTreeRenderer } from "./react_renderer.js?v=424758886";
+import { applyPatch } from "./flat_tree.js?v=424758886";
 
 // `rendererName` picks the renderer (docs/renderer_layers.md): "webGPU"
 // (default) binds the self-drawing SwiftGPURenderer; "react" binds the
@@ -34,19 +35,37 @@ export async function boot({
   canvas, wasmURL, bundle, rendererName = "webGPU", embedded = false,
   // Host-side swift_ffi dependency injection (docs/wasm_di.md): entries built
   // with the generated `Dependencies` builders, keyed by dictionary key. The
-  // page owns every app-specific service; boot() just passes the table to
-  // load(). Async completions call back through the app's own exports on the
-  // returned bridge.
+  // page owns every app-specific service; boot() passes the table to load()
+  // beside Foundation's networking (network.js, under `isomerHTTP` and
+  // `isomerWebSocket`, which a page's own entries replace). Async
+  // completions call back through the app's own exports on the returned
+  // bridge.
   dependencies = {},
-  // WASI shim overrides, merged over the built-ins (extend or replace
-  // individual calls — clocks, fds, … — without forking the runtime).
+  // What Foundation's networking sends through: the browser's `fetch` and
+  // `WebSocket` unless the page gives its own (the same signatures), as a
+  // page does that routes requests through its server. (Renamed here: a
+  // parameter named `fetch` would hide the global the reactor loads with.)
+  fetch: pageFetch = undefined,
+  WebSocket: PageWebSocket = undefined,
+  // WASI shim overrides, merged over the built-ins and the app's file
+  // system (extend or replace individual calls — clocks, fds, … — without
+  // forking the runtime); a function gets the memory accessor and the
+  // built-ins.
   wasi = undefined,
+  // The app's identity on this origin, as an Apple app's bundle identifier:
+  // its files (file_system.js) are kept under it, and the guest's
+  // `Bundle.main.bundleIdentifier` is it. Without one, the files are kept
+  // under the reactor's URL.
+  bundleIdentifier = undefined,
   // Document scrolling on a phone-width page (react only): the screen's
   // scroll is the page's own, its bars fixed over it (react_renderer.js).
   // Also `?scroll=document` in the page's URL.
   documentScroll = new URLSearchParams(location.search).get("scroll") === "document",
 } = {}) {
   const react = rendererName === "react";
+  // The app's files, read from IndexedDB while the rest starts: the reactor
+  // finds them from its first instruction.
+  const filesOpening = openAppFiles(appFilesKey(bundleIdentifier, bundle ? undefined : wasmURL));
   // SwiftGPURenderer: Swift draws through Isomer's Metal, whose executor
   // runs it on WebGPU; this page supplies measurement + rasterization.
   let gpuHost = null;
@@ -56,7 +75,7 @@ export async function boot({
     // static import would put the Metal executor on EVERY page's critical
     // module graph (an unresolved ES module import evaluates NOTHING —
     // rendering as a silent blank page when the file isn't served).
-    const { createIsomerMetalHost } = await import("./isomer_metal_webgpu.js?v=1317694784");
+    const { createIsomerMetalHost } = await import("./isomer_metal_webgpu.js?v=424758886");
     gpuHost = await createIsomerMetalHost(canvas);
     raster = createRasterHost({
       scale: window.devicePixelRatio || 1,
@@ -78,7 +97,7 @@ export async function boot({
   async function ensureMetalHost() {
     if (gpuHost) return gpuHost;
     metalHostStarting ??= (async () => {
-      const { createIsomerMetalHost } = await import("./isomer_metal_webgpu.js?v=1317694784");
+      const { createIsomerMetalHost } = await import("./isomer_metal_webgpu.js?v=424758886");
       gpuHost = await createIsomerMetalHost(canvas);
       gpuHost.connect(bridge);
       bridge.isoSetDisplayScale(window.devicePixelRatio || 1);
@@ -503,22 +522,6 @@ export async function boot({
       textOverlay.style.color = darkMode ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)";
     },
     now() { return performance.now() / 1000; },
-    storageGet(key) {
-      let value = null;
-      try {
-        value = localStorage.getItem(key);
-      } catch (err) {
-        console.warn("[storage] get failed", err);
-      }
-      return { exists: value != null, contents: value ?? "" };
-    },
-    storageSet(key, value) {
-      try {
-        localStorage.setItem(key, value);
-      } catch (err) {
-        console.warn("[storage] set failed", err);
-      }
-    },
     log(message) { console.log("[swiftui]", message); },
     openURL(url) { window.open(url, "_blank"); },
     // Generic platform-configuration channel (window title, platform
@@ -563,13 +566,20 @@ export async function boot({
   const module = bundle
     ? await WebAssembly.compile(bundle.wasm ?? bundle)
     : await WebAssembly.compileStreaming(fetch(wasmURL));
-  // Picked and dropped files live in an in-memory directory the guest's
-  // Foundation reads through WASI; a page's own overrides go on top.
-  const wasiWithFiles = (getMemory) => ({
-    ...importedFilesWasi(getMemory),
-    ...(typeof wasi === "function" ? wasi(getMemory) : (wasi || {})),
+  // The guest's Foundation reads and writes the app's files through WASI
+  // (file_system.js); a page's own overrides go on top.
+  const files = await filesOpening;
+  const environment = bundleIdentifier ? { ISOMER_BUNDLE_IDENTIFIER: bundleIdentifier } : {};
+  const wasiWithFiles = (getMemory, builtins) => ({
+    ...files.wasi(getMemory, builtins, { environment }),
+    ...(typeof wasi === "function" ? wasi(getMemory, builtins) : (wasi || {})),
   });
-  bridge = await load(module, { dependencies, wasi: wasiWithFiles });
+  // `URLSession` over the page's fetch and WebSocket (network.js): isoStart
+  // installs them before the app's @main runs.
+  bridge = await load(module, {
+    dependencies: { ...browserNetworkHosts(Dependencies, { fetch: pageFetch, WebSocket: PageWebSocket }), ...dependencies },
+    wasi: wasiWithFiles,
+  });
   if (gpuHost) {
     gpuHost.connect(bridge); // Isomer's Metal executor (WebGPU)
   }
@@ -653,7 +663,7 @@ export async function boot({
 // real DOM/React components inside the container; "webGPU" draws into a
 // canvas that fills it. Container resizes re-lay-out the embedded view
 // independently of the window. Returns { bridge, unmount }.
-export async function mountIsomer(container, { wasmURL, bundle, renderer = "webGPU", dependencies = {}, wasi = undefined } = {}) {
+export async function mountIsomer(container, { wasmURL, bundle, renderer = "webGPU", dependencies = {}, wasi = undefined, bundleIdentifier = undefined, fetch = undefined, WebSocket = undefined } = {}) {
   // The react tree / host-view overlays anchor to the container.
   if (getComputedStyle(container).position === "static") {
     container.style.position = "relative";
@@ -663,8 +673,8 @@ export async function mountIsomer(container, { wasmURL, bundle, renderer = "webG
   container.appendChild(canvas);
 
   const result = await boot({
-    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=1317694784"),
-    bundle, rendererName: renderer, embedded: true, dependencies, wasi,
+    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=424758886"),
+    bundle, rendererName: renderer, embedded: true, dependencies, wasi, bundleIdentifier, fetch, WebSocket,
   });
 
   if (renderer !== "react" && typeof ResizeObserver !== "undefined") {
