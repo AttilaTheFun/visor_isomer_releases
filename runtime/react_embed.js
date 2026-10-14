@@ -14,19 +14,19 @@
 // Uses the page's React (`window.React`, the same UMD global the tree renderer
 // uses), so the host app and the embedded surface share one React.
 //
-//   const { Isomer } = await import("./runtime/react_embed.js?v=3018317600");
-//   <Isomer wasmURL="./app.wasm?v=3018317600" renderer="react" style={{ height: 480 }} />
+//   const { Isomer } = await import("./runtime/react_embed.js?v=3555770090");
+//   <Isomer wasmURL="./app.wasm?v=3555770090" renderer="react" style={{ height: 480 }} />
 //   // or, with hot reload / dynamic delivery:
-//   <Isomer provider={appBundleProvider("./app.wasm?v=3018317600", { hotReloadURL })} />
+//   <Isomer provider={appBundleProvider("./app.wasm?v=3555770090", { hotReloadURL })} />
 
-import { mountIsomer } from "./boot.js?v=3018317600";
-import { packagedBundleProvider } from "./bundle_provider.js?v=3018317600";
+import { mountIsomer } from "./boot.js?v=3555770090";
+import { packagedBundleProvider } from "./bundle_provider.js?v=3555770090";
 
 // `bundleIdentifier` names the app on the origin (boot.js): its files are
 // kept under it, and a new bundle finds them as the last one left them.
 // `fetch` and `WebSocket`, when given, are what the app's URLSession sends
 // through instead of the browser's (boot.js).
-export function Isomer({ provider, wasmURL = "./app.wasm?v=3018317600", renderer = "react", bundleIdentifier, fetch, WebSocket, style }) {
+export function Isomer({ provider, wasmURL = "./app.wasm?v=3555770090", renderer = "react", bundleIdentifier, fetch, WebSocket, style }) {
   const R = window.React;
   const ref = R.useRef(null);
   R.useEffect(() => {
