@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=1960595091";
-import { SYMBOLS } from "./symbols.js?v=1960595091";
-import { storeFiles } from "./imported_files.js?v=1960595091";
+import { resolveImageSource } from "./raster.js?v=3820693152";
+import { SYMBOLS } from "./symbols.js?v=3820693152";
+import { storeFiles } from "./imported_files.js?v=3820693152";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -3128,7 +3128,19 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       s.flexGrow = 0;
       if (s.alignSelf === "stretch") delete s.alignSelf;
     }
-    if (bounds.maxH != null && n.height == null) { s.maxHeight = Number(bounds.maxH); s.boxSizing = "border-box"; }
+    if (bounds.maxH != null && n.height == null) {
+      s.maxHeight = Number(bounds.maxH); s.boxSizing = "border-box";
+      // Round greedy content (a ScrollView in `.frame(maxHeight: 92)`) it is
+      // its cap, as SwiftUI gives the content min(offer, cap), shrinking if
+      // its column is squeezed. Left to its content's height, a scroll's
+      // zero basis made it 0px tall: a composer's suggestions never showed.
+      const content = (n.ch || []).filter((c) => !(c.params && c.params.layer));
+      if (!n.expandH && content.some((c) => c.growH || c.expandH)) {
+        s.height = Number(bounds.maxH);
+        s.flexShrink = 1;
+        s.minHeight = 0;
+      }
+    }
     if (bounds.minW != null) s.minWidth = Number(bounds.minW);
     if (bounds.minH != null) s.minHeight = Number(bounds.minH);
     // SwiftUI fixed frames don't compress; keep flexbox from shrinking them
