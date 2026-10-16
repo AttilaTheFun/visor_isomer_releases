@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=1683416094";
-import { SYMBOLS } from "./symbols.js?v=1683416094";
-import { storeFiles } from "./imported_files.js?v=1683416094";
+import { resolveImageSource } from "./raster.js?v=1960595091";
+import { SYMBOLS } from "./symbols.js?v=1960595091";
+import { storeFiles } from "./imported_files.js?v=1960595091";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
