@@ -22,8 +22,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js?v=2431382290"></script>
-  <script src="./runtime/react-dom.production.min.js?v=2431382290"></script>
+  <script src="./runtime/react.production.min.js?v=187233572"></script>
+  <script src="./runtime/react-dom.production.min.js?v=187233572"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -33,8 +33,8 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js?v=2431382290";
-    import { Dependencies } from "./app_bridge.js?v=2431382290";
+    import { boot } from "./runtime/boot.js?v=187233572";
+    import { Dependencies } from "./app_bridge.js?v=187233572";
 
     // --- The client's services (libraries/visor_services), in the browser ---
 
@@ -49,7 +49,7 @@
     // What the client tells the servers it reports to: this page's name,
     // build and system. The build is the iPhone app's Installer ships
     // (applications/visor_isomer_wasmkit_ios/Info.plist), bumped with it.
-    const host = { "host.deviceName": "Web", "host.appVersion": "0.34 (15)", "host.platform": "web" };
+    const host = { "host.deviceName": "Web", "host.appVersion": "0.34 (16)", "host.platform": "web" };
     const settings = {
       get(key) { return key in host ? host[key] : key in launchOverrides ? launchOverrides[key] : (localStorage.getItem(prefix + key) || ""); },
       set(key, value) { if (value) localStorage.setItem(prefix + key, value); else localStorage.removeItem(prefix + key); },
@@ -150,7 +150,7 @@
       http: Dependencies.httpBridge(() => http),
       settings: Dependencies.settingsBridge(() => settings),
     };
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=2431382290", rendererName: "react", dependencies, documentScroll: true })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=187233572", rendererName: "react", dependencies, documentScroll: true })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>
