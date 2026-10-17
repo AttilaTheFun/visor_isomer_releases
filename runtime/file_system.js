@@ -21,12 +21,15 @@
 //
 // What is under HOME persists: each file and directory is a record in the
 // origin's IndexedDB database "isomer-files", keyed by [the app's key, its
-// path under HOME], read before the reactor starts and written behind the
-// guest's changes (together, WRITE_DELAY_MS after the first of them, and at
-// once when the page is hidden or left), only the records that changed; a
-// file written on and on is put again at most that often. What a leaving
+// path under HOME], and a file's bytes are records of BLOCK bytes beside it,
+// keyed by [the app's key, its path, the block's number]. They are read
+// before the reactor starts and written behind the guest's changes
+// (together, WRITE_DELAY_MS after the first of them, and at once when the
+// page is hidden or left), only the records that changed: a database that
+// rewrites one 4 KiB page puts one block, not the whole file. What a leaving
 // page may not finish writing there goes to localStorage as well, for the
-// next load to write on (writeJournal). /tmp lives in memory and goes with
+// next load to write on (writeJournal). A file kept whole in its own record,
+// as before blocks, is read as it was and kept in blocks from its next write. /tmp lives in memory and goes with
 // the page. Where IndexedDB can't be had (an opaque origin, a private
 // window that refuses it) the app's files live in memory for the page's
 // life, with one warning. The browser may still evict an origin's data
@@ -55,6 +58,9 @@ const STORE = "files";
 const WRITE_DELAY_MS = 300;
 // The most file bytes a leaving page puts in its localStorage journal.
 const JOURNAL_LIMIT = 1 << 20;
+// A file's bytes are kept in IndexedDB in pieces of this size, each put
+// again only when a write touched it.
+const BLOCK = 1 << 16;
 
 // wasi_snapshot_preview1's numbers.
 const SUCCESS = 0, EACCES = 2, EBADF = 8, EEXIST = 20, EINVAL = 28, EISDIR = 31,
@@ -214,16 +220,33 @@ const toBase64 = (data) => {
 const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
 // The record a node is kept as (its path under HOME is the key's second
-// half). Directories keep no time: theirs changes with every entry.
+// half): a file's size and time, its bytes being its blocks' records.
+// Directories keep no time: theirs changes with every entry.
 function recordOf(node) {
   if (node.type === DIRECTORY) return { type: "directory" };
-  return { type: "file", data: node.data.slice(0, node.size), mtime: Number(node.mtime / 1000000n) };
+  return { type: "file", size: node.size, blocks: true, mtime: Number(node.mtime / 1000000n) };
+}
+
+// Block `index` of a file's bytes (the last one may be short).
+const blockOf = (node, index) => node.data.slice(index * BLOCK, Math.min(node.size, (index + 1) * BLOCK));
+const blockCount = (node) => Math.ceil(node.size / BLOCK);
+
+// A file's bytes from its record: its own `data` (kept whole, as before
+// blocks), or its blocks ([number, bytes] pairs) laid out to its size.
+function bytesOf(record, blocks) {
+  if (!record.blocks) return record.data;
+  const data = new Uint8Array(record.size);
+  for (const [index, block] of blocks || []) {
+    if (index * BLOCK < record.size) data.set(block.subarray(0, record.size - index * BLOCK), index * BLOCK);
+  }
+  return data;
 }
 
 // Puts a record read back at `path` under `home`, with the directories
-// above it (they come first in key order, but needn't). A record that
-// contradicts the tree (a file where a directory is) is left out.
-function place(home, path, record) {
+// above it (they come first in key order, but needn't); a file's bytes are
+// `data`. A record that contradicts the tree (a file where a directory is)
+// is left out. Returns the file placed, if one was.
+function place(home, path, record, data) {
   const names = path.split("/");
   let directory = home;
   for (const name of names.slice(0, -1)) {
@@ -235,11 +258,13 @@ function place(home, path, record) {
     directoryIn(directory, name);
   } else if (!directory.entries.has(name)) {
     const file = makeNode(REGULAR_FILE);
-    file.data = record.data;
-    file.size = record.data.length;
+    file.data = data;
+    file.size = data.length;
     file.mtime = file.ctime = BigInt(record.mtime) * 1000000n;
     attach(directory, name, file);
+    return file;
   }
+  return null;
 }
 
 // --- An app's files ---------------------------------------------------------
@@ -295,6 +320,8 @@ async function createAppFiles(key) {
     return names.reverse().join("/");
   };
 
+  // Files read from records that kept them whole (before blocks).
+  const wholeFiles = new Set();
   let database = null;
   try {
     database = await openDatabase();
@@ -304,46 +331,93 @@ async function createAppFiles(key) {
     // [key, <an array>].
     const range = IDBKeyRange.bound([key], [key, []]);
     const [keys, records] = await Promise.all([requestDone(store.getAllKeys(range)), requestDone(store.getAll(range))]);
-    keys.forEach(([, path], index) => place(home, path, records[index]));
+    // A file's blocks ([key, path, number]) come right after its record.
+    const blocks = new Map();
+    keys.forEach(([, path, index], i) => {
+      if (index === undefined) return;
+      if (!blocks.has(path)) blocks.set(path, []);
+      blocks.get(path).push([index, records[i]]);
+    });
+    keys.forEach(([, path, index], i) => {
+      if (index !== undefined) return;
+      const record = records[i];
+      const file = place(home, path, record, record.type === "file" ? bytesOf(record, blocks.get(path)) : null);
+      // Kept whole before blocks: all of it goes into blocks at its next write.
+      if (file && !record.blocks) wholeFiles.add(file);
+    });
   } catch (error) {
     database = null;
     warnOnce("IndexedDB is unavailable: the app's files are kept in memory and go with the page.", error);
   }
 
-  // Paths under HOME changed since the last write; at the write, each is put
-  // as what is there now, or deleted when nothing is. `writing` holds the
-  // paths of each write not yet complete.
-  const dirty = new Set();
+  // Paths under HOME changed since the last write, each with the numbers of
+  // its blocks that changed (ALL: every one); at the write, each path is put
+  // as what is there now (its record, and those of its blocks), or deleted
+  // when nothing is. `writing` holds the same for each write not yet
+  // complete.
+  const dirty = new Map();
   const writing = new Set();
   let timer = 0;
+  const ALL = "all";
+  function markDirty(path, blocks) {
+    const known = dirty.get(path);
+    if (known === ALL) return;
+    if (blocks === ALL) return void dirty.set(path, ALL);
+    const set = known || new Set();
+    for (const index of blocks) set.add(index);
+    dirty.set(path, set);
+  }
+  // Every block of a file's from `index` on.
+  const blocksFrom = (path, index) => IDBKeyRange.bound([key, path, index], [key, path, Infinity]);
   function flush() {
     clearTimeout(timer);
     timer = 0;
     if (!database || !dirty.size) return Promise.resolve();
-    const paths = [...dirty];
+    const batch = new Map(dirty);
     dirty.clear();
     const failed = (error) => {
-      writing.delete(paths);
-      // Kept for the next write (a full disk may have room by then).
-      for (const path of paths) dirty.add(path);
+      writing.delete(batch);
+      // Kept for the next write (a full disk may have room by then), whole:
+      // what reached IndexedDB of this one isn't known.
+      for (const path of batch.keys()) markDirty(path, ALL);
       warnOnce("could not write the app's files to IndexedDB.", error);
     };
     try {
       const transaction = database.transaction(STORE, "readwrite");
       const store = transaction.objectStore(STORE);
-      for (const path of paths) {
+      for (const [path, blocks] of batch) {
         const node = atPath(path);
-        if (node) store.put(recordOf(node), [key, path]);
-        else store.delete([key, path]);
+        if (!node) {
+          store.delete([key, path]);
+          store.delete(blocksFrom(path, 0));
+          continue;
+        }
+        store.put(recordOf(node), [key, path]);
+        if (node.type !== REGULAR_FILE) {
+          store.delete(blocksFrom(path, 0));
+          continue;
+        }
+        const count = blockCount(node);
+        const whole = blocks === ALL || wholeFiles.has(node);
+        wholeFiles.delete(node);
+        for (let index = 0; index < count; index++) {
+          if (whole || blocks.has(index)) store.put(blockOf(node, index), [key, path, index]);
+        }
+        // What a shrink gave up (and a file kept whole before blocks).
+        store.delete(blocksFrom(path, count));
       }
-      writing.add(paths);
+      writing.add(batch);
       // Sent now: the page may be going.
       if (transaction.commit) transaction.commit();
       return new Promise((resolve) => {
         transaction.oncomplete = () => {
-          writing.delete(paths);
+          writing.delete(batch);
           // Everything is in IndexedDB: a journal has nothing left to say.
+          // Else one written before this write would hold blocks older than
+          // the ones it put, which the next load would lay over them: it is
+          // written again from what is still to come.
           if (!dirty.size && !writing.size) clearJournal();
+          else if (journaled) writeJournal();
           resolve();
         };
         transaction.onerror = transaction.onabort = () => {
@@ -362,28 +436,50 @@ async function createAppFiles(key) {
   // in `pagehide` doesn't always finish first. So whenever the page is
   // hidden or left, what isn't yet known to be in IndexedDB is also put in
   // localStorage (which a leaving page writes at once), as a journal the
-  // next load plays over what IndexedDB had and writes on. Up to
-  // JOURNAL_LIMIT bytes of files; beyond, IndexedDB alone.
+  // next load plays over what IndexedDB had and writes on: the blocks that
+  // changed, with their file's size. Up to JOURNAL_LIMIT bytes of blocks;
+  // beyond, IndexedDB alone.
   const journalKey = `${DATABASE}:${key}`;
+  let journaled = false;
   function writeJournal() {
-    const paths = new Set(dirty);
-    for (const list of writing) for (const path of list) paths.add(path);
-    if (!paths.size) return;
+    const pending = new Map();
+    const add = (path, blocks) => {
+      const known = pending.get(path);
+      if (known === ALL || blocks === ALL) return void pending.set(path, ALL);
+      pending.set(path, new Set([...(known || []), ...blocks]));
+    };
+    for (const [path, blocks] of dirty) add(path, blocks);
+    for (const batch of writing) for (const [path, blocks] of batch) add(path, blocks);
+    if (!pending.size) return;
     const journal = {};
     let size = 0;
-    for (const path of paths) {
+    for (const [path, blocks] of pending) {
       const node = atPath(path);
       if (node && node.type === REGULAR_FILE) {
-        size += node.size;
-        if (size > JOURNAL_LIMIT) return clearJournal();
-        journal[path] = { type: "file", data: toBase64(node.data.subarray(0, node.size)), mtime: Number(node.mtime / 1000000n) };
+        const count = blockCount(node);
+        const whole = blocks === ALL || wholeFiles.has(node);
+        const entry = { type: "file", size: node.size, mtime: Number(node.mtime / 1000000n), blocks: {} };
+        for (let index = 0; index < count; index++) {
+          if (!whole && !blocks.has(index)) continue;
+          const block = blockOf(node, index);
+          size += block.length;
+          if (size > JOURNAL_LIMIT) return clearJournal();
+          entry.blocks[index] = toBase64(block);
+        }
+        journal[path] = entry;
       } else {
         journal[path] = node ? { type: "directory" } : null;
       }
     }
-    try { localStorage.setItem(journalKey, JSON.stringify(journal)); } catch (_) { clearJournal(); }
+    try {
+      localStorage.setItem(journalKey, JSON.stringify(journal));
+      journaled = true;
+    } catch (_) {
+      clearJournal();
+    }
   }
   function clearJournal() {
+    journaled = false;
     try { localStorage.removeItem(journalKey); } catch (_) { /* no storage */ }
   }
   function leave() {
@@ -394,16 +490,30 @@ async function createAppFiles(key) {
     // The last page's journal, over what IndexedDB had; written on at once.
     let journal = null;
     try { journal = JSON.parse(localStorage.getItem(journalKey) || "null"); } catch (_) { /* none */ }
+    journaled = journal !== null;
     for (const [path, record] of Object.entries(journal || {})) {
       const found = atPath(path);
+      if (record && record.type === "file" && record.blocks && found && found.type === REGULAR_FILE) {
+        // The blocks that changed, over the file IndexedDB had.
+        resize(found, record.size);
+        for (const [index, text] of Object.entries(record.blocks)) found.data.set(fromBase64(text), Number(index) * BLOCK);
+        found.mtime = found.ctime = BigInt(record.mtime) * 1000000n;
+        markDirty(path, Object.keys(record.blocks).map(Number));
+        continue;
+      }
       // A directory stays as it is, with what is in it.
       const kept = found && record && record.type === "directory" && found.type === DIRECTORY;
       if (found && !kept) {
         markTree(found);
         detach(found);
       }
-      if (record && !kept) place(home, path, record.type === "file" ? { ...record, data: fromBase64(record.data) } : record);
-      dirty.add(path);
+      if (record && !kept) {
+        const data = record.type !== "file" ? null
+          : record.blocks ? bytesOf({ ...record, blocks: true }, Object.entries(record.blocks).map(([index, text]) => [Number(index), fromBase64(text)]))
+          : fromBase64(record.data);
+        place(home, path, record, data);
+      }
+      markDirty(path, ALL);
     }
     if (dirty.size) timer = setTimeout(flush, 0);
     if (typeof window !== "undefined") {
@@ -414,10 +524,10 @@ async function createAppFiles(key) {
     }
   }
 
-  // `node` and everything in it, as changed.
+  // `node` and everything in it, as changed (all of each file's blocks).
   function markTree(node) {
     const path = pathOf(node);
-    if (path) dirty.add(path);
+    if (path) markDirty(path, ALL);
     if (node.entries) for (const child of node.entries.values()) markTree(child);
   }
 
@@ -425,12 +535,18 @@ async function createAppFiles(key) {
     key, root, home,
     /** Writes what changed now (it would be written a moment later). */
     flush,
-    // `node`'s content, or its being there, changed.
-    changed(node) {
+    // `node`'s content, or its being there, changed: its bytes from `from`
+    // to `to` when given (a write, a resize), else only what the node's
+    // record says (its size, its time, its being there).
+    changed(node, from, to) {
       if (!database) return;
       const path = pathOf(node);
       if (!path) return;
-      dirty.add(path);
+      const blocks = [];
+      if (from !== undefined && to > from) {
+        for (let index = Math.floor(from / BLOCK); index * BLOCK < to; index++) blocks.push(index);
+      }
+      markDirty(path, blocks);
       timer ||= setTimeout(flush, WRITE_DELAY_MS);
     },
     // `node` and everything in it (a directory moving).
@@ -514,6 +630,7 @@ function fileSystemWasi(files, getMemory, builtins, environment) {
     return total;
   };
   const writeAt = (node, position, iovs, count) => {
+    const start = position;
     let total = 0;
     for (const [ptr, len] of iovecs(iovs, count)) {
       if (position + len > node.size) resize(node, position + len);
@@ -523,7 +640,7 @@ function fileSystemWasi(files, getMemory, builtins, environment) {
     }
     if (total) {
       node.mtime = node.ctime = now();
-      files.changed(node);
+      files.changed(node, start, position);
     }
     return total;
   };
@@ -636,9 +753,11 @@ function fileSystemWasi(files, getMemory, builtins, environment) {
       const entry = openFile(fd, RIGHT_FD_WRITE);
       if (entry === null) return EBADF;
       if (typeof entry === "number") return entry === EISDIR ? EINVAL : entry;
+      const before = entry.node.size;
       resize(entry.node, Number(size));
       entry.node.mtime = entry.node.ctime = now();
-      files.changed(entry.node);
+      // What grew, as zeros, or the last block a shrink cut short.
+      files.changed(entry.node, Math.min(before, entry.node.size), Math.max(before, entry.node.size));
       return SUCCESS;
     },
     fd_filestat_set_times: (fd, atim, mtim, fstflags) => {
@@ -707,8 +826,9 @@ function fileSystemWasi(files, getMemory, builtins, environment) {
       if (typeof entry === "number") return entry;
       const size = Number(offset) + Number(len);
       if (size > entry.node.size) {
+        const before = entry.node.size;
         resize(entry.node, size);
-        files.changed(entry.node);
+        files.changed(entry.node, before, size);
       }
       return SUCCESS;
     },

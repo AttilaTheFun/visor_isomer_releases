@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=3820693152";
-import { SYMBOLS } from "./symbols.js?v=3820693152";
-import { storeFiles } from "./imported_files.js?v=3820693152";
+import { resolveImageSource } from "./raster.js?v=4077971827";
+import { SYMBOLS } from "./symbols.js?v=4077971827";
+import { storeFiles } from "./imported_files.js?v=4077971827";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -554,6 +554,14 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         e.stopPropagation();
         sendEvent(n.tap, "");
       };
+      // A tap leaves a text field focused, as SwiftUI's buttons do on iOS
+      // and the Mac (a composer's send button, a completion picked above
+      // it, which then puts the caret after what it inserted): the press
+      // doesn't move the browser's focus to the page.
+      props.onMouseDown = (e) => {
+        const focused = document.activeElement;
+        if (focused && (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT")) e.preventDefault();
+      };
       // Web-idiomatic press feedback on tappable regions.
       props.className = ((props.className || "") + " iso-tap").trim();
       // A row's button of the automatic style, two columns wide: the Mac's
@@ -666,8 +674,47 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const keyUp = p.keys && p.keyUp === "1"
       ? { onKeyUp: (e) => { if (keyPress(p.keys, e, "u")) e.preventDefault(); } }
       : {};
+    // `TextField(_:text:selection:)`: the field's selection goes to the
+    // guest (params.selId, "start,end" in UTF-16 units, as the DOM counts
+    // them), and one the app set (params.sel, "start,end,request") is shown
+    // once per request, when the field holds the guest's text of the frame
+    // that asked: React puts a new value in after layout effects (which
+    // moves the caret to the end), so the request waits for it. Once the
+    // guest's text has moved on (the person typed), the request is dropped.
+    const reportedSelection = R.useRef("");
+    const shownRequest = R.useRef(0);
+    const waiting = R.useRef(null);
+    const reportSelection = (el) => {
+      if (!p.selId || !el) return;
+      const selection = `${el.selectionStart},${el.selectionEnd}`;
+      if (selection === reportedSelection.current) return;
+      reportedSelection.current = selection;
+      sendEvent(p.selId, selection);
+    };
+    R.useLayoutEffect(() => {
+      if (p.sel) {
+        const [start, end, request] = p.sel.split(",").map(Number);
+        if (request > shownRequest.current && (!waiting.current || waiting.current.request !== request)) {
+          waiting.current = { start, end, request, text: n.v || "" };
+        }
+      }
+      const wanted = waiting.current;
+      const el = focusRef.current || areaRef.current;
+      if (!wanted || !el) return;
+      if ((n.v || "") !== wanted.text) {
+        waiting.current = null;
+        shownRequest.current = wanted.request;
+        return;
+      }
+      if (el.value !== wanted.text) return;
+      waiting.current = null;
+      shownRequest.current = wanted.request;
+      el.setSelectionRange(Math.min(wanted.start, el.value.length), Math.min(wanted.end, el.value.length));
+      reportedSelection.current = `${el.selectionStart},${el.selectionEnd}`;
+    });
+    const selectionHandlers = p.selId ? { onSelect: (e) => reportSelection(e.target) } : {};
     const shared = {
-      ...keyboardHints, ...autocap, ...autocorrect, ...focusHandlers, ...keyUp,
+      ...keyboardHints, ...autocap, ...autocorrect, ...focusHandlers, ...keyUp, ...selectionHandlers,
       ref: focusRef,
       value,
       placeholder: n.placeholder,
@@ -675,6 +722,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
         setValue(e.target.value);
         pending.current.push(e.target.value);
         if (n.edit) sendEvent(n.edit, e.target.value);
+        // The caret typing moved, after the text it is in.
+        reportSelection(e.target);
       },
       // `.onSubmit`: Enter submits (no newline); Shift/Alt+Enter inserts a
       // newline in a multi-line field (the Messages composer shape).

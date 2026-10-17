@@ -22,8 +22,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js?v=3820693152"></script>
-  <script src="./runtime/react-dom.production.min.js?v=3820693152"></script>
+  <script src="./runtime/react.production.min.js?v=4077971827"></script>
+  <script src="./runtime/react-dom.production.min.js?v=4077971827"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -33,8 +33,8 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js?v=3820693152";
-    import { Dependencies } from "./app_bridge.js?v=3820693152";
+    import { boot } from "./runtime/boot.js?v=4077971827";
+    import { Dependencies } from "./app_bridge.js?v=4077971827";
 
     // --- The client's services (libraries/visor_services), in the browser ---
 
@@ -47,9 +47,9 @@
     if (launch.get("fixture")) launchOverrides["fixture"] = launch.get("fixture");
     if (launch.get("screen")) launchOverrides["fixture.screen"] = launch.get("screen");
     // What the client tells the servers it reports to: this page's name,
-    // build and system. The build is the iOS app's (Info.plist), bumped with
-    // it.
-    const host = { "host.deviceName": "Web", "host.appVersion": "0.31 (5)", "host.platform": "web" };
+    // build and system. The build is the iPhone app's Installer ships
+    // (applications/visor_isomer_wasmkit_ios/Info.plist), bumped with it.
+    const host = { "host.deviceName": "Web", "host.appVersion": "0.33 (10)", "host.platform": "web" };
     const settings = {
       get(key) { return key in host ? host[key] : key in launchOverrides ? launchOverrides[key] : (localStorage.getItem(prefix + key) || ""); },
       set(key, value) { if (value) localStorage.setItem(prefix + key, value); else localStorage.removeItem(prefix + key); },
@@ -140,97 +140,17 @@
       },
     };
 
-    // The message cache: IndexedDB. What was kept is read before the app
-    // boots and handed over once (`snapshot`); each change the app makes is
-    // written after it, in order (`apply`). A cache of another schema
-    // version is dropped. Without IndexedDB (a private window) the cache is
-    // simply not kept.
-    const cacheDB = await new Promise((resolve) => {
-      try {
-        const request = indexedDB.open("visor-cache", 1);
-        request.onupgradeneeded = () => {
-          const db = request.result;
-          db.createObjectStore("meta");
-          db.createObjectStore("sync", { keyPath: "s" });
-          db.createObjectStore("source", { keyPath: "s" });
-          db.createObjectStore("nodes", { keyPath: ["s", "seq"] });
-          db.createObjectStore("messages", { keyPath: ["s", "m.id"] });
-        };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => resolve(null);
-      } catch (_) { resolve(null); }
-    });
-    const idb = (request) => new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    const cacheStores = ["meta", "sync", "source", "nodes", "messages"];
-    let kept = null;
-    if (cacheDB) {
-      try {
-        const tx = cacheDB.transaction(cacheStores, "readonly");
-        const [version, sync, source, nodes, messages] = await Promise.all([
-          idb(tx.objectStore("meta").get("version")),
-          idb(tx.objectStore("sync").getAll()),
-          idb(tx.objectStore("source").getAll()),
-          idb(tx.objectStore("nodes").getAll()),
-          idb(tx.objectStore("messages").getAll()),
-        ]);
-        kept = { version, sync, source, nodes, messages };
-      } catch (_) { kept = null; }
-    }
-    let cacheWrites = Promise.resolve();
-    const writeCache = (work) => {
-      cacheWrites = cacheWrites.then(() => new Promise((resolve) => {
-        const tx = cacheDB.transaction(cacheStores, "readwrite");
-        work(tx);
-        tx.oncomplete = resolve;
-        tx.onerror = tx.onabort = () => { console.warn("visor cache write failed", tx.error); resolve(); };
-      }));
-    };
-    const cache = {
-      snapshot(version) {
-        if (!cacheDB) return "";
-        const found = kept;
-        kept = null;
-        if (found && found.version === version) {
-          return JSON.stringify({ sync: found.sync, source: found.source, nodes: found.nodes, messages: found.messages });
-        }
-        writeCache((tx) => {
-          for (const name of cacheStores) tx.objectStore(name).clear();
-          tx.objectStore("meta").put(version, "version");
-        });
-        return "";
-      },
-      apply(ops) {
-        if (!cacheDB) return;
-        const list = JSON.parse(ops);
-        writeCache((tx) => {
-          const whole = (s) => IDBKeyRange.bound([s], [s, []]);
-          for (const op of list) {
-            switch (op.op) {
-              case "sync": tx.objectStore("sync").put({ s: op.s, rev: op.rev, gen: op.gen }); break;
-              case "source": tx.objectStore("source").put({ s: op.s, path: op.path, identity: op.identity, bytes: op.bytes, next: op.next }); break;
-              case "nodes": for (const node of op.nodes) tx.objectStore("nodes").put({ s: op.s, ...node }); break;
-              case "put": tx.objectStore("messages").put({ s: op.s, seq: op.seq, sk: op.sk, m: op.m }); break;
-              case "delete": for (const id of op.ids) tx.objectStore("messages").delete([op.s, id]); break;
-              case "dropMessages": tx.objectStore("messages").delete(whole(op.s)); break;
-              case "dropSession":
-                tx.objectStore("sync").delete(op.s);
-                tx.objectStore("source").delete(op.s);
-                tx.objectStore("nodes").delete(whole(op.s));
-                tx.objectStore("messages").delete(whole(op.s));
-                break;
-            }
-          }
-        });
-      },
-    };
+    // The message cache is SQLite in the app's files now (Application
+    // Support, which Isomer keeps in this origin's IndexedDB): the database
+    // the page kept it in before 0.33 goes, once.
+    try { indexedDB.deleteDatabase("visor-cache"); } catch (_) { /* no IndexedDB */ }
 
     const dependencies = {
       socket: Dependencies.socketBridge(() => socket),
       http: Dependencies.httpBridge(() => http),
       settings: Dependencies.settingsBridge(() => settings),
-      cache: Dependencies.cacheBridge(() => cache),
     };
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=3820693152", rendererName: "react", dependencies, documentScroll: true })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=4077971827", rendererName: "react", dependencies, documentScroll: true })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>

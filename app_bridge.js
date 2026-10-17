@@ -12,9 +12,9 @@
 //
 // The shared runtime (swift_ffi/runtime/ts) is staged next to this file
 // by the wasm library macro; bridges in one directory share the one copy.
-import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=3820693152";
+import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=4077971827";
 // Re-exported so consumers keep importing them from this module.
-export { Types } from "./swift_ffi_runtime.js?v=3820693152";
+export { Types } from "./swift_ffi_runtime.js?v=4077971827";
 /** The runtime type token for `HTTPHostResponse` (generic calls). */
 export const HTTPHostResponseType = {
     encode(w, v) {
@@ -443,78 +443,6 @@ export function makeDispatcher_SettingsBridge(impl, runtime) {
             }
         }
         throw new SwiftError("unknown SettingsBridge method ordinal");
-    };
-}
-export class SwiftCacheBridge {
-    handle;
-    runtime;
-    /** @internal Takes ownership of a +1 handle. */
-    constructor(runtime, handle) {
-        this.runtime = runtime;
-        this.handle = handle;
-        registry.register(this, () => runtime.call("swift_ffi_visor_CacheBridge_release", handle), this);
-    }
-    /** @internal */
-    borrowHandle() {
-        if (this.handle === 0)
-            throw new Error("CacheBridge used after close()");
-        return this.handle;
-    }
-    /** Releases the underlying Swift instance. Idempotent. */
-    close() {
-        if (this.handle !== 0) {
-            registry.unregister(this);
-            this.runtime.call("swift_ffi_visor_CacheBridge_release", this.handle);
-            this.handle = 0;
-        }
-    }
-    [Symbol.dispose]() {
-        this.close();
-    }
-    snapshot(version) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.int32.encode(w, version);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_visor_CacheBridge_invoke", handle, 0, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-        return decodeWith(Types.string, result);
-    }
-    apply(ops) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.string.encode(w, ops);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_visor_CacheBridge_invoke", handle, 1, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-}
-/** Wraps a consumer-implemented `CacheBridge` as the ordinal
- * dispatcher Swift's foreign proxy calls (method ordinal leads the
- * arguments). */
-export function makeDispatcher_CacheBridge(impl, runtime) {
-    return (args) => {
-        const r = new BlobReader(args);
-        switch (Types.int32.decode(r)) {
-            case 0: {
-                const a0 = Types.int32.decode(r);
-                return encodeWith(Types.string, impl.snapshot(a0));
-            }
-            case 1: {
-                const a0 = Types.string.decode(r);
-                impl.apply(a0);
-                return new Uint8Array(0);
-            }
-        }
-        throw new SwiftError("unknown CacheBridge method ordinal");
     };
 }
 export class SwiftDictationBridge {
@@ -1408,18 +1336,6 @@ export const Dependencies = {
             },
         };
     },
-    cacheBridge: (provide, lazy = true) => {
-        let impl;
-        return {
-            key: "swift_ffi_visor_CacheBridge",
-            lazy,
-            dispatcher: (args, runtime) => {
-                if (!impl)
-                    impl = provide();
-                return makeDispatcher_CacheBridge(impl, runtime)(args);
-            },
-        };
-    },
     dictationBridge: (provide, lazy = true) => {
         let impl;
         return {
@@ -1668,7 +1584,6 @@ export async function load(wasm, options) {
     runtime.call("swift_ffi_visor_register_SocketBridge");
     runtime.call("swift_ffi_visor_register_HttpBridge");
     runtime.call("swift_ffi_visor_register_SettingsBridge");
-    runtime.call("swift_ffi_visor_register_CacheBridge");
     runtime.call("swift_ffi_visor_register_DictationBridge");
     runtime.call("swift_ffi_isomer_register_HTTPHost");
     runtime.call("swift_ffi_isomer_register_WebSocketHost");

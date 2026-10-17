@@ -18,11 +18,11 @@
 // (dependency lookups answer "absent"); a v3 reactor that never touches
 // `dependencies[...]` runs exactly as it does under a host without DI.
 
-import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=3820693152";
-import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=3820693152";
-import { applyPatch } from "./runtime/flat_tree.js?v=3820693152";
-import { appFilesKey, openAppFiles } from "./runtime/file_system.js?v=3820693152";
-import { browserNetworkHosts } from "./runtime/network.js?v=3820693152";
+import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=4077971827";
+import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=4077971827";
+import { applyPatch } from "./runtime/flat_tree.js?v=4077971827";
+import { appFilesKey, openAppFiles } from "./runtime/file_system.js?v=4077971827";
+import { browserNetworkHosts } from "./runtime/network.js?v=4077971827";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -36,7 +36,7 @@ const encoder = new TextEncoder();
  *  None without them. */
 async function pageNetworkHosts(options) {
   try {
-    const { Dependencies } = await import("./app_bridge.js?v=3820693152");
+    const { Dependencies } = await import("./app_bridge.js?v=4077971827");
     return browserNetworkHosts(Dependencies, options);
   } catch (_) {
     return {};
