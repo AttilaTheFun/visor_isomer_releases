@@ -12,9 +12,9 @@
 //
 // The shared runtime (swift_ffi/runtime/ts) is staged next to this file
 // by the wasm library macro; bridges in one directory share the one copy.
-import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=3473622666";
+import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=1545535727";
 // Re-exported so consumers keep importing them from this module.
-export { Types } from "./swift_ffi_runtime.js?v=3473622666";
+export { Types } from "./swift_ffi_runtime.js?v=1545535727";
 /** The runtime type token for `HTTPHostResponse` (generic calls). */
 export const HTTPHostResponseType = {
     encode(w, v) {
@@ -566,6 +566,94 @@ export function makeDispatcher_DictationBridge(impl, runtime) {
             }
         }
         throw new SwiftError("unknown DictationBridge method ordinal");
+    };
+}
+export class SwiftNetworkBridge {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_visor_NetworkBridge_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("NetworkBridge used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_visor_NetworkBridge_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    interfaces() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_visor_NetworkBridge_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.string, result);
+    }
+    changed() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return undefined;
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_visor_NetworkBridge_invoke", handle, 1, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+}
+/** Wraps a consumer-implemented `NetworkBridge` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_NetworkBridge(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                return encodeWith(Types.string, impl.interfaces());
+            }
+            case 1: {
+                const callId = Types.int32.decode(r);
+                if (!runtime)
+                    throw new SwiftError("NetworkBridge.changed is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.changed()).then((value) => resumeAsync(rt(), callId, new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0])), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown NetworkBridge method ordinal");
     };
 }
 export class SwiftHTTPHost {
@@ -1348,6 +1436,18 @@ export const Dependencies = {
             },
         };
     },
+    networkBridge: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_visor_NetworkBridge",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_NetworkBridge(impl, runtime)(args);
+            },
+        };
+    },
     hTTPHost: (provide, lazy = true) => {
         let impl;
         return {
@@ -1408,6 +1508,10 @@ export class SwiftUI {
         const f1 = http instanceof SwiftHttpBridge ? [http.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_HttpBridge(http, () => this.runtime))];
         const f2 = settings instanceof SwiftSettingsBridge ? [settings.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_SettingsBridge(settings, () => this.runtime))];
         this.runtime.call("swift_ffi_visor_installVisorBridges", f0[0], f0[1], f1[0], f1[1], f2[0], f2[1]);
+    }
+    installVisorNetwork(network) {
+        const f0 = network instanceof SwiftNetworkBridge ? [network.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_NetworkBridge(network, () => this.runtime))];
+        this.runtime.call("swift_ffi_visor_installVisorNetwork", f0[0], f0[1]);
     }
     installIsomerNetworkHosts(http, webSocket) {
         const f0 = http instanceof SwiftHTTPHost ? [http.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_HTTPHost(http, () => this.runtime))];
@@ -1585,6 +1689,7 @@ export async function load(wasm, options) {
     runtime.call("swift_ffi_visor_register_HttpBridge");
     runtime.call("swift_ffi_visor_register_SettingsBridge");
     runtime.call("swift_ffi_visor_register_DictationBridge");
+    runtime.call("swift_ffi_visor_register_NetworkBridge");
     runtime.call("swift_ffi_isomer_register_HTTPHost");
     runtime.call("swift_ffi_isomer_register_WebSocketHost");
     runtime.call("swift_ffi_register_MetalWebHost");
