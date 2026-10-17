@@ -12,9 +12,9 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { resolveImageSource } from "./raster.js?v=187233572";
-import { SYMBOLS } from "./symbols.js?v=187233572";
-import { storeFiles } from "./imported_files.js?v=187233572";
+import { resolveImageSource } from "./raster.js?v=2974010561";
+import { SYMBOLS } from "./symbols.js?v=2974010561";
+import { storeFiles } from "./imported_files.js?v=2974010561";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -118,8 +118,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       // above it has `.allowsHitTesting(false)`.
       ".iso-pass [data-hit]{pointer-events:auto}" +
       ".iso-pass [data-nohit],.iso-pass [data-nohit] *{pointer-events:none}" +
-      ".iso-bar-item:hover{background:rgba(120,120,128,0.16) !important}" +
-      ".iso-bar-item:active{background:rgba(120,120,128,0.26) !important}" +
+      ".iso-bar-item:not(:disabled):hover{background:rgba(120,120,128,0.16) !important}" +
+      ".iso-bar-item:not(:disabled):active{background:rgba(120,120,128,0.26) !important}" +
       ".iso-tap:active{background-color:rgba(120,120,128,0.18) !important}" +
       ".iso-switch{appearance:none;-webkit-appearance:none;width:44px;height:26px;flex:none;" +
       "border-radius:13px;background:rgba(120,120,128,0.35);position:relative;outline:none;" +
@@ -1051,6 +1051,11 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
     const segments = split("segments").map((s) => (s ? s.split("\u001f") : []));
     const segmentSelected = split("segmentSelected").map((s) => Number(s) || 0);
     const prominent = split("prominent");
+    // A disabled item (`.disabled(true)` on its button): greyed as iOS
+    // greys a bar button, and no press.
+    const leadingDisabled = split("leadingDisabled");
+    const trailingDisabled = split("trailingDisabled");
+    const disabledItem = { color: dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)", cursor: "default" };
     // `.accessibilityLabel` on a bar button → aria-label (glyph-only items
     // like ✎ / ▶︎ read as "Edit" / "Run" to assistive tech and the tap tool).
     const leadingLabels = split("leadingLabels");
@@ -1071,7 +1076,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       : h("button", {
           key: `t${i}`, className: "iso-bar-item",
           "aria-label": trailingLabels[i] || undefined,
-          style: { ...itemStyle(trailingSymbols[i]), ...(prominent[i] === "1" ? { fontWeight: 600 } : {}), ...(extra || {}) },
+          disabled: trailingDisabled[i] === "1",
+          style: { ...itemStyle(trailingSymbols[i]), ...(prominent[i] === "1" ? { fontWeight: 600 } : {}), ...(trailingDisabled[i] === "1" ? disabledItem : {}), ...(extra || {}) },
           onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
         }, itemContent(trailing[i] || "", trailingSymbols[i]));
     // Symmetric side clusters keep the title centered.
@@ -1099,7 +1105,9 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
               symbolSVG(h, "chevron.left", desktop ? 17 : 21, "currentColor", 600, { verticalAlign: "0" }), desktop ? "Back" : null)
           : null,
         leading.map((title, i) => n.hiddenLeading && n.hiddenLeading.has(i) ? null : h("button", {
-          key: `l${i}`, className: "iso-bar-item", style: itemStyle(leadingSymbols[i]), "aria-label": leadingLabels[i] || undefined,
+          key: `l${i}`, className: "iso-bar-item", "aria-label": leadingLabels[i] || undefined,
+          disabled: leadingDisabled[i] === "1",
+          style: { ...itemStyle(leadingSymbols[i]), ...(leadingDisabled[i] === "1" ? disabledItem : {}) },
           onClick: () => sendEvent(n.edit, `leading:${i}`),
         }, itemContent(title, leadingSymbols[i]))),
         leadingTitle
@@ -1262,12 +1270,17 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       const bottom = (place) => place === "cancellationAction" || place === "confirmationAction" || place === "destructiveAction";
       const leadingTitles = p.leading ? p.leading.split("\n") : [];
       const trailingTitles = p.trailingItems ? p.trailingItems.split("\n") : [];
+      const leadingOff = places("leadingDisabled"), trailingOff = places("trailingDisabled");
       places("leadingPlacements").forEach((place, i) => {
-        if (bottom(place)) { movedLeading.add(i); sheetActions.push({ title: leadingTitles[i] || "", place, event: `leading:${i}` }); }
+        if (bottom(place)) {
+          movedLeading.add(i);
+          sheetActions.push({ title: leadingTitles[i] || "", place, event: `leading:${i}`, disabled: leadingOff[i] === "1" });
+        }
       });
       places("trailingPlacements").forEach((place, i) => {
         if (bottom(place) && String(i) !== String(p.principal)) {
-          movedTrailing.add(i); sheetActions.push({ title: trailingTitles[i] || "", place, event: `trailingItem:${i}` });
+          movedTrailing.add(i);
+          sheetActions.push({ title: trailingTitles[i] || "", place, event: `trailingItem:${i}`, disabled: trailingOff[i] === "1" });
         }
       });
       // Cancel, then whatever else, then the confirmation.
@@ -1372,6 +1385,8 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
           segments: p.segments,
           segmentSelected: p.segmentSelected,
           prominent: p.prominent,
+          leadingDisabled: p.leadingDisabled,
+          trailingDisabled: p.trailingDisabled,
         },
       })));
     }
@@ -1453,14 +1468,17 @@ export function createReactTreeRenderer({ container, sendEvent, sendKey = (id, v
       }, sheetActions.map((action) => {
         const confirm = action.place === "confirmationAction";
         const destructive = action.place === "destructiveAction";
+        // Disabled, the Mac's push button greys: the default one loses its
+        // accent and both take the disabled label colour.
+        const off = action.disabled;
         return h("button", {
-          key: action.event, className: "iso-bar-item", onClick: () => sendEvent(n.edit, action.event),
+          key: action.event, className: "iso-bar-item", disabled: off, onClick: () => sendEvent(n.edit, action.event),
           style: {
             minWidth: 72, height: 24, padding: "0 12px", borderRadius: 6, fontSize: 13, fontWeight: confirm ? 600 : 400,
-            fontFamily: SYSTEM_FONT, cursor: "pointer",
-            border: confirm ? "none" : `1px solid ${dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-            background: confirm ? "var(--iso-tint, #0a84ff)" : dark ? "rgba(255,255,255,0.12)" : "#fff",
-            color: confirm ? "#fff" : destructive ? "#ff453a" : "inherit",
+            fontFamily: SYSTEM_FONT, cursor: off ? "default" : "pointer",
+            border: confirm && !off ? "none" : `1px solid ${dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+            background: confirm && !off ? "var(--iso-tint, #0a84ff)" : dark ? "rgba(255,255,255,0.12)" : "#fff",
+            color: off ? (dark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.25)") : confirm ? "#fff" : destructive ? "#ff453a" : "inherit",
           },
         }, action.title);
       })));
